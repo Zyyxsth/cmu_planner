@@ -1,0 +1,63 @@
+version: '3.8'
+
+# 使用 macvlan 让每个容器有独立 IP
+# 两个 Unity 都可以在容器内用 10000 端口，但对外 IP 不同
+
+networks:
+  mtare_net:
+    driver: macvlan
+    driver_opts:
+      parent: eth0  # 改成你的网卡名
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+
+services:
+  robot_0:
+    build: .
+    image: mtare-planner:latest
+    container_name: mtare_robot_0
+    networks:
+      mtare_net:
+        ipv4_address: 192.168.1.10
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        export LD_LIBRARY_PATH=/ros2_ws/src/mtare_planner/tare_planner/or-tools/lib:\$LD_LIBRARY_PATH &&
+        /ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64 &
+        sleep 5 &&
+        ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py
+          robot_id:=0 kRobotNum:=2 kAutoStart:=true coordination:=true
+      "
+
+  robot_1:
+    build: .
+    image: mtare-planner:latest  
+    container_name: mtare_robot_1
+    networks:
+      mtare_net:
+        ipv4_address: 192.168.1.11
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        export LD_LIBRARY_PATH=/ros2_ws/src/mtare_planner/tare_planner/or-tools/lib:\$LD_LIBRARY_PATH &&
+        /ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64 &
+        sleep 5 &&
+        ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py
+          robot_id:=1 kRobotNum:=2 kAutoStart:=true coordination:=true
+      "

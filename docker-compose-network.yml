@@ -1,0 +1,73 @@
+# Network configuration for M-TARE multi-robot simulation
+# 
+# For single computer: Use bridge mode (comment out macvlan, uncomment bridge)
+# For multiple computers: Use macvlan mode (comment out bridge, uncomment macvlan)
+#
+# To find your network interface: ifconfig or ip link
+# Common names: eth0, enp0s31f6, eno1, wlp3s0
+
+version: '3.8'
+
+networks:
+  mtare_network:
+    # Option 1: Bridge mode (for single computer)
+    driver: bridge
+    
+    # Option 2: Macvlan mode (for multiple computers)
+    # Uncomment the lines below for multi-computer setup
+    # driver: macvlan
+    # driver_opts:
+    #   parent: eth0  # Change to your network interface
+    # ipam:
+    #   config:
+    #     - subnet: 192.168.1.0/24
+    #       gateway: 192.168.1.1
+
+services:
+  robot_0:
+    build: .
+    image: mtare-planner:latest
+    container_name: mtare_robot_0
+    hostname: robot0
+    networks:
+      - mtare_network
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - ROBOT_ID=0
+      - ROBOT_NUM=2
+      - COMMS_RANGE=30
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+    # For GPU support (optional)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  robot_1:
+    build: .
+    image: mtare-planner:latest
+    container_name: mtare_robot_1
+    hostname: robot1
+    networks:
+      - mtare_network
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - ROBOT_ID=1
+      - ROBOT_NUM=2
+      - COMMS_RANGE=30
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    stdin_open: true
+    tty: true
+    command: /bin/bash

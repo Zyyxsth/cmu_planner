@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  robot_0:
+    build: .
+    image: mtare-planner:latest
+    container_name: mtare_robot_0
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - ROBOT_ID=0
+      - ROBOT_NUM=2
+      - COMMS_RANGE=30
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        export LD_LIBRARY_PATH=/ros2_ws/src/mtare_planner/tare_planner/or-tools/lib:\$LD_LIBRARY_PATH &&
+        # Start Unity in background
+        /ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64 &
+        sleep 5 &&
+        # Start ROS2 nodes
+        ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py
+          robot_id:=0
+          kRobotNum:=2
+          kAutoStart:=true
+          coordination:=true
+      "
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  robot_1:
+    build: .
+    image: mtare-planner:latest
+    container_name: mtare_robot_1
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - ROBOT_ID=1
+      - ROBOT_NUM=2
+      - COMMS_RANGE=30
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        export LD_LIBRARY_PATH=/ros2_ws/src/mtare_planner/tare_planner/or-tools/lib:\$LD_LIBRARY_PATH &&
+        # Start Unity in background  
+        /ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64 &
+        sleep 5 &&
+        # Start ROS2 nodes
+        ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py
+          robot_id:=1
+          kRobotNum:=2
+          kAutoStart:=true
+          coordination:=true
+      "
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
