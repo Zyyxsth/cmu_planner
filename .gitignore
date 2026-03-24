@@ -1,0 +1,36 @@
+build
+
+devel
+
+install
+
+log/*
+
+.catkin_workspace
+
+__pycache__
+
+*~
+
+.DS_Store
+
+.vscode
+
+src/base_autonomy/vehicle_simulator/mesh/*
+
+!src/base_autonomy/vehicle_simulator/mesh/unity
+
+src/base_autonomy/vehicle_simulator/mesh/unity/*
+
+src/base_autonomy/vehicle_simulator/log/*
+
+!readme.txt
+
+# Temporary files
+frames_*.gv
+frames_*.pdf
+*.log
+
+# Test scripts (optional, keep if you want)
+# test_multi_robot.sh
+# kill_all.sh
