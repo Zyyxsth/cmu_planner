@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, GroupAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, GroupAction, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource, FrontendLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.actions import PushRosNamespace
@@ -17,6 +17,7 @@ def launch_robot(context, robot_id, x, y, yaw, mtare_planner_config, vehicleHeig
     ns = f'robot_{robot_id}'
     
     # Each robot gets a unique port for Unity communication
+    # Unity instances will be started separately on ports 10000, 10001, etc.
     tcp_port = 10000 + robot_id
     
     # Build namespace-specific topic names
@@ -34,7 +35,7 @@ def launch_robot(context, robot_id, x, y, yaw, mtare_planner_config, vehicleHeig
     
     return GroupAction([
         PushRosNamespace(ns),
-        # ROS TCP Endpoint for Unity communication (one per robot)
+        # ROS TCP Endpoint for Unity communication (one per robot, different ports)
         Node(
             package='ros_tcp_endpoint',
             executable='default_server_endpoint',
@@ -160,6 +161,7 @@ def generate_launch_description():
     cameraOffsetZ = LaunchConfiguration('cameraOffsetZ')
     checkTerrainConn = LaunchConfiguration('checkTerrainConn')
     robot_num = LaunchConfiguration('robot_num')
+    unity_path = LaunchConfiguration('unity_path')
     
     declare_mtare_planner_config = DeclareLaunchArgument('mtare_planner_config', default_value='indoor', description='')
     declare_world_name = DeclareLaunchArgument('world_name', default_value='unity', description='')
@@ -167,6 +169,11 @@ def generate_launch_description():
     declare_cameraOffsetZ = DeclareLaunchArgument('cameraOffsetZ', default_value='0.041', description='')
     declare_checkTerrainConn = DeclareLaunchArgument('checkTerrainConn', default_value='true', description='')
     declare_robot_num = DeclareLaunchArgument('robot_num', default_value='2', description='Number of robots')
+    declare_unity_path = DeclareLaunchArgument(
+        'unity_path',
+        default_value=os.path.expanduser('~/autonomy_stack_diablo_setup/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64'),
+        description='Path to Unity executable'
+    )
     
     # Common visualization tools (global, not per-robot)
     start_visualization_tools = IncludeLaunchDescription(
@@ -204,6 +211,7 @@ def generate_launch_description():
     ld.add_action(declare_cameraOffsetZ)
     ld.add_action(declare_checkTerrainConn)
     ld.add_action(declare_robot_num)
+    ld.add_action(declare_unity_path)
 
     ld.add_action(start_visualization_tools)
     ld.add_action(start_joy)
