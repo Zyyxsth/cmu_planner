@@ -31,6 +31,11 @@ from .publisher import RosPublisher
 from .service import RosService
 from .unity_service import UnityService
 
+try:
+    from rclpy._rclpy_pybind11 import InvalidHandle
+except ImportError:  # pragma: no cover
+    InvalidHandle = RuntimeError
+
 
 class TcpServer(Node):
     """
@@ -164,13 +169,25 @@ class TcpServer(Node):
             executor.add_node(ros_node)
 
         self.executor = executor
-        executor.spin()
+        while rclpy.ok():
+            try:
+                executor.spin_once(timeout_sec=0.1)
+            except InvalidHandle:
+                # A ROS entity was destroyed while the executor wait-set still
+                # contained it. Ignore the race and continue spinning.
+                continue
 
     def unregister_node(self, old_node):
         if old_node is not None:
-            old_node.unregister()
             if self.executor is not None:
-                self.executor.remove_node(old_node)
+                try:
+                    self.executor.remove_node(old_node)
+                except Exception:
+                    pass
+            try:
+                old_node.unregister()
+            except Exception:
+                pass
 
     def destroy_nodes(self):
         """

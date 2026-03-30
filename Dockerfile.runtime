@@ -1,0 +1,29 @@
+FROM ros:humble-ros-base
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    ros-humble-joy \
+    ros-humble-tf2-ros \
+    ros-humble-pcl-conversions \
+    ros-humble-pcl-ros \
+    ros-humble-cv-bridge \
+    ros-humble-image-transport \
+    ros-humble-compressed-image-transport \
+    ros-humble-nav-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    libpcl-dev \
+    libeigen3-dev \
+    libboost-all-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup environment
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+WORKDIR /workspace
+
+# Default command
+CMD ["/bin/bash"]

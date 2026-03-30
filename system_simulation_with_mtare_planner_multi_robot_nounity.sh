@@ -3,7 +3,7 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 cd $SCRIPT_DIR
-source ./install/setup.bash
+source ./source_workspace_setup.bash
 
 # Set or-tools library path
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$SCRIPT_DIR/src/mtare_planner/tare_planner/or-tools/lib

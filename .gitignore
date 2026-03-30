@@ -5,6 +5,7 @@ devel
 install
 
 log/*
+log_mtare
 
 .catkin_workspace
 

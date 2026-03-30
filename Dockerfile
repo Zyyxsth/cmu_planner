@@ -25,6 +25,16 @@ RUN apt-get update && apt-get install -y \
     tmux \
     net-tools \
     iputils-ping \
+    socat \
+    xauth \
+    libglu1-mesa \
+    libxrandr2 \
+    libxi6 \
+    libxcursor1 \
+    libxinerama1 \
+    libxxf86vm1 \
+    libnss3 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create workspace

@@ -70,5 +70,11 @@ class RosSubscriber(RosReceiver):
         Returns:
 
         """
-        self.destroy_subscription(self.subscription)
-        self.destroy_node()
+        try:
+            self.destroy_subscription(self.subscription)
+        except Exception:
+            pass
+        try:
+            self.destroy_node()
+        except Exception:
+            pass

@@ -64,5 +64,11 @@ class RosPublisher(RosSender):
         Returns:
 
         """
-        self.destroy_publisher(self.pub)
-        self.destroy_node()
+        try:
+            self.destroy_publisher(self.pub)
+        except Exception:
+            pass
+        try:
+            self.destroy_node()
+        except Exception:
+            pass

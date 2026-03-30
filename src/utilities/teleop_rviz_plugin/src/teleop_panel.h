@@ -46,6 +46,7 @@ protected:
 
   // ROS2 uses smart pointers for publishers and subscribers
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr velocity_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr start_exploration_publisher_;
 
   // Use shared pointer for the node
   rclcpp::Node::SharedPtr node_;

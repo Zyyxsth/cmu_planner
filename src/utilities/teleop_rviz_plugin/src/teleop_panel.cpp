@@ -31,14 +31,19 @@ TeleopPanel::TeleopPanel( QWidget* parent )
   output_timer->start( 100 );
 
   velocity_publisher_ = node_->create_publisher<sensor_msgs::msg::Joy>("/joy", 5);
+  start_exploration_publisher_ = node_->create_publisher<std_msgs::msg::Bool>("/start_exploration", 5);
 
   drive_widget_->setEnabled( true );
 }
 
 void TeleopPanel::pressButton1()
 {
-  if (rclcpp::ok() && velocity_publisher_->get_subscription_count() > 0)
+  if (rclcpp::ok())
   {
+    std_msgs::msg::Bool start_msg;
+    start_msg.data = true;
+    start_exploration_publisher_->publish(start_msg);
+
     sensor_msgs::msg::Joy joy;
 
     joy.axes.push_back(0);

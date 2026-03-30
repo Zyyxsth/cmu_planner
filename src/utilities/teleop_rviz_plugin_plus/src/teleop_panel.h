@@ -53,6 +53,7 @@ protected:
 
   // ROS2 uses smart pointers for publishers and subscribers
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr velocity_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr start_exploration_publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr attemptable_publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr update_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr reset_publisher_;

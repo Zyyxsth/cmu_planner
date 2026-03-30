@@ -208,6 +208,12 @@ int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   auto nh = rclcpp::Node::make_shared("vehicleSimulator");
+  std::string terrainMapTopic = "/terrain_map";
+  std::string cmdVelTopic = "/cmd_vel";
+  std::string stateEstimationTopic = "/state_estimation";
+  std::string modelStateTopic = "/unity_sim/set_model_state";
+  std::string mapFrame = "map";
+  std::string sensorFrame = "sensor";
 
   nh->declare_parameter<double>("sensorOffsetX", sensorOffsetX);
   nh->declare_parameter<double>("sensorOffsetY", sensorOffsetY);
@@ -229,6 +235,13 @@ int main(int argc, char** argv)
   nh->declare_parameter<double>("smoothRateIncl", smoothRateIncl);
   nh->declare_parameter<double>("InclFittingThre", InclFittingThre);
   nh->declare_parameter<double>("maxIncl", maxIncl);
+  nh->declare_parameter<std::string>("terrainMapTopic", terrainMapTopic);
+  nh->declare_parameter<std::string>("cmdVelTopic", cmdVelTopic);
+  nh->declare_parameter<std::string>("stateEstimationTopic",
+                                     stateEstimationTopic);
+  nh->declare_parameter<std::string>("modelStateTopic", modelStateTopic);
+  nh->declare_parameter<std::string>("mapFrame", mapFrame);
+  nh->declare_parameter<std::string>("sensorFrame", sensorFrame);
 
   nh->get_parameter("sensorOffsetX", sensorOffsetX);
   nh->get_parameter("sensorOffsetY", sensorOffsetY);
@@ -250,24 +263,34 @@ int main(int argc, char** argv)
   nh->get_parameter("smoothRateIncl", smoothRateIncl);
   nh->get_parameter("InclFittingThre", InclFittingThre);
   nh->get_parameter("maxIncl", maxIncl);
+  nh->get_parameter("terrainMapTopic", terrainMapTopic);
+  nh->get_parameter("cmdVelTopic", cmdVelTopic);
+  nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
+  nh->get_parameter("modelStateTopic", modelStateTopic);
+  nh->get_parameter("mapFrame", mapFrame);
+  nh->get_parameter("sensorFrame", sensorFrame);
 
-  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/terrain_map", 2, terrainCloudHandler);
+  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
+      terrainMapTopic, 2, terrainCloudHandler);
 
-  auto subSpeed = nh->create_subscription<geometry_msgs::msg::TwistStamped>("/cmd_vel", 5, speedHandler);
+  auto subSpeed = nh->create_subscription<geometry_msgs::msg::TwistStamped>(
+      cmdVelTopic, 5, speedHandler);
 
-  auto pubVehicleOdom = nh->create_publisher<nav_msgs::msg::Odometry>("/state_estimation", 5);
+  auto pubVehicleOdom = nh->create_publisher<nav_msgs::msg::Odometry>(
+      stateEstimationTopic, 5);
   nav_msgs::msg::Odometry odomData;
-  odomData.header.frame_id = "map";
-  odomData.child_frame_id = "sensor";
+  odomData.header.frame_id = mapFrame;
+  odomData.child_frame_id = sensorFrame;
 
   auto tfBroadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*nh);
   tf2::Stamped<tf2::Transform> odomTrans;
   geometry_msgs::msg::TransformStamped transformTfGeom ; 
-  odomTrans.frame_id_ = "map";
+  odomTrans.frame_id_ = mapFrame;
 
-  auto pubModelState = nh->create_publisher<geometry_msgs::msg::PoseStamped>("/unity_sim/set_model_state", 5);
+  auto pubModelState = nh->create_publisher<geometry_msgs::msg::PoseStamped>(
+      modelStateTopic, 5);
   geometry_msgs::msg::PoseStamped robotState;
-  robotState.header.frame_id = "map";
+  robotState.header.frame_id = mapFrame;
 
   terrainDwzFilter.setLeafSize(terrainVoxelSize, terrainVoxelSize, terrainVoxelSize);
 
@@ -320,7 +343,7 @@ int main(int argc, char** argv)
     odomTrans.setRotation(tf2::Quaternion(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w));
     odomTrans.setOrigin(tf2::Vector3(vehicleX, vehicleY, vehicleZ));
     transformTfGeom = tf2::toMsg(odomTrans);
-    transformTfGeom.child_frame_id = "sensor";
+    transformTfGeom.child_frame_id = sensorFrame;
     transformTfGeom.header.stamp = odomTime;
     tfBroadcaster->sendTransform(transformTfGeom);
 

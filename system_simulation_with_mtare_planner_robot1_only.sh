@@ -12,13 +12,13 @@ fi
 export LD_LIBRARY_PATH="$SCRIPT_DIR/src/mtare_planner/tare_planner/or-tools/lib:${LD_LIBRARY_PATH:-}"
 export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 
-ROBOT_NUM=${1:-2}
-UNITY_MODE=${2:-docker}
+UNITY_MODE=${1:-docker}
 DOCKER_IMAGE=${DOCKER_IMAGE:-mtare-planner:latest}
-RVIZ_CONFIG=${RVIZ_CONFIG:-src/mtare_planner/tare_planner/rviz/tare_planner_multi_robot.rviz}
+RVIZ_CONFIG=${RVIZ_CONFIG:-src/mtare_planner/tare_planner/rviz/tare_planner_ground_robot1.rviz}
+TARE_PREFIX=${TARE_PREFIX:-}
 
 cleanup() {
-    pkill -f "system_simulation_with_mtare_planner_multi_robot.launch.py" 2>/dev/null || true
+    pkill -f "system_simulation_with_mtare_planner.launch.py" 2>/dev/null || true
     pkill -f "tare_planner_node" 2>/dev/null || true
     pkill -f "vehicleSimulator" 2>/dev/null || true
     pkill -f "localPlanner" 2>/dev/null || true
@@ -34,17 +34,15 @@ cleanup() {
     pkill -f "rviz2" 2>/dev/null || true
     rm -f /dev/shm/fastrtps_* /dev/shm/fastdds* 2>/dev/null || true
 
-    for ((i=0; i<ROBOT_NUM; i++)); do
-        ./run_unity_instance_docker.sh stop "$i" >/dev/null 2>&1 || true
-    done
+    ./run_unity_instance_docker.sh stop 1 >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT
 
 echo "============================================"
-echo "Multi-Robot Simulation with MTARE Planner"
+echo "MTARE Planner Robot1-Only Simulation"
 echo "============================================"
-echo "Robot number: $ROBOT_NUM"
+echo "Mode: robot_1 in a 2-robot configuration"
 echo "Unity mode: $UNITY_MODE"
 echo ""
 
@@ -56,24 +54,43 @@ pkill -9 "Model.x86_64" 2>/dev/null || true
 sleep 1
 
 if [ "$UNITY_MODE" = "docker" ]; then
-    echo "Starting $ROBOT_NUM Unity instances in Docker..."
-    for ((i=0; i<ROBOT_NUM; i++)); do
-        ./run_unity_instance_docker.sh start "$i" "$((10000 + i))" "$DOCKER_IMAGE"
-    done
+    echo "Starting Unity container for robot_1..."
+    ./run_unity_instance_docker.sh start 1 10001 "$DOCKER_IMAGE"
 elif [ "$UNITY_MODE" = "host" ]; then
-    echo "Starting host Unity instances is not supported automatically."
-    echo "Use docker mode, or start isolated Unity instances manually."
+    echo "Host Unity startup is not automated."
+    echo "Start a host Unity instance manually and point it to TCP 10001."
 else
     echo "Skipping Unity startup. ROS stack only."
 fi
 
 sleep 3
 
-echo "Starting ROS2 multi-robot stack..."
-ros2 launch vehicle_simulator system_simulation_with_mtare_planner_multi_robot.launch.py \
-    robot_num:="$ROBOT_NUM" \
-    launch_joy:=false \
-    launch_visualization:=true &
+echo "Starting ROS2 stack for robot_1 only..."
+LAUNCH_ARGS=(
+    mtare_planner_config:=indoor
+    world_name:=unity
+    use_boundary:=true
+    robot_id:=1
+    robot_num:=2
+    robot_ns:=robot_1
+    ros_tcp_port:=10001
+    coordination:=true
+    kAutoStart:=true
+    test_id:=0002
+    robot_types:=wheeled,wheeled
+    vehicleX:=0.0
+    vehicleY:=0.0
+    vehicleYaw:=0.0
+    launch_visualization:=true
+    launch_joy:=false
+)
+
+if [ -n "$TARE_PREFIX" ]; then
+    LAUNCH_ARGS+=("tare_prefix:=$TARE_PREFIX")
+fi
+
+ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py \
+    "${LAUNCH_ARGS[@]}" &
 LAUNCH_PID=$!
 
 sleep 2
@@ -84,14 +101,11 @@ RVIZ_PID=$!
 
 echo ""
 echo "============================================"
-echo "System started!"
+echo "System started"
 echo "============================================"
-echo ""
-for ((i=0; i<ROBOT_NUM; i++)); do
-    echo "Robot $i:"
-    echo "  ROS namespace: /robot_$i"
-    echo "  Unity TCP target on host: $((10000 + i))"
-done
+echo "Active robot: /robot_1"
+echo "Unity TCP target on host: 10001"
+echo "Robot_0 is intentionally not started."
 echo ""
 echo "Close RViz or press Ctrl+C to stop."
 

@@ -1,6 +1,11 @@
 <launch>
 
   <arg name="checkTerrainConn" default="false"/>
+  <arg name="stateEstimationTopic" default="/state_estimation"/>
+  <arg name="registeredScanTopic" default="/registered_scan"/>
+  <arg name="cloudClearingTopic" default="/cloud_clearing"/>
+  <arg name="terrainMapTopic" default="/terrain_map"/>
+  <arg name="terrainMapExtTopic" default="/terrain_map_ext"/>
 
   <node pkg="terrain_analysis_ext" exec="terrainAnalysisExt" name="terrainAnalysisExt" output="screen">
     <param name="scanVoxelSize" value="0.1" />
@@ -20,6 +25,11 @@
     <param name="terrainUnderVehicle" value="-0.75" />
     <param name="ceilingFilteringThre" value="2.0" />
     <param name="localTerrainMapRadius" value="4.0" />
+    <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
+    <param name="registeredScanTopic" value="$(var registeredScanTopic)" />
+    <param name="cloudClearingTopic" value="$(var cloudClearingTopic)" />
+    <param name="terrainMapTopic" value="$(var terrainMapTopic)" />
+    <param name="terrainMapExtTopic" value="$(var terrainMapExtTopic)" />
   </node>
 
 </launch>

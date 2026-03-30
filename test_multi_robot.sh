@@ -2,7 +2,7 @@
 set -e
 
 cd /home/yy/autonomy_stack_diablo_setup
-source ./install/setup.bash
+source ./source_workspace_setup.bash
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:src/mtare_planner/tare_planner/or-tools/lib
 
 echo "========================================="

@@ -509,6 +509,16 @@ int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   nh = rclcpp::Node::make_shared("localPlanner");
+  std::string stateEstimationTopic = "/state_estimation";
+  std::string registeredScanTopic = "/registered_scan";
+  std::string terrainMapTopic = "/terrain_map";
+  std::string waypointTopic = "/way_point";
+  std::string speedTopic = "/speed";
+  std::string checkObstacleTopic = "/check_obstacle";
+  std::string slowDownTopic = "/slow_down";
+  std::string pathTopic = "/path";
+  std::string freePathsTopic = "/free_paths";
+  std::string vehicleFrame = "vehicle";
 
   nh->declare_parameter<std::string>("pathFolder", pathFolder);
   nh->declare_parameter<double>("vehicleLength", vehicleLength);
@@ -552,6 +562,19 @@ int main(int argc, char** argv)
   nh->declare_parameter<double>("goalBehindRange", goalBehindRange);
   nh->declare_parameter<double>("goalX", goalX);
   nh->declare_parameter<double>("goalY", goalY);
+  nh->declare_parameter<std::string>("stateEstimationTopic",
+                                     stateEstimationTopic);
+  nh->declare_parameter<std::string>("registeredScanTopic",
+                                     registeredScanTopic);
+  nh->declare_parameter<std::string>("terrainMapTopic", terrainMapTopic);
+  nh->declare_parameter<std::string>("waypointTopic", waypointTopic);
+  nh->declare_parameter<std::string>("speedTopic", speedTopic);
+  nh->declare_parameter<std::string>("checkObstacleTopic",
+                                     checkObstacleTopic);
+  nh->declare_parameter<std::string>("slowDownTopic", slowDownTopic);
+  nh->declare_parameter<std::string>("pathTopic", pathTopic);
+  nh->declare_parameter<std::string>("freePathsTopic", freePathsTopic);
+  nh->declare_parameter<std::string>("vehicleFrame", vehicleFrame);
 
   nh->get_parameter("pathFolder", pathFolder);
   nh->get_parameter("vehicleLength", vehicleLength);
@@ -595,33 +618,51 @@ int main(int argc, char** argv)
   nh->get_parameter("goalBehindRange", goalBehindRange);
   nh->get_parameter("goalX", goalX);
   nh->get_parameter("goalY", goalY);
+  nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
+  nh->get_parameter("registeredScanTopic", registeredScanTopic);
+  nh->get_parameter("terrainMapTopic", terrainMapTopic);
+  nh->get_parameter("waypointTopic", waypointTopic);
+  nh->get_parameter("speedTopic", speedTopic);
+  nh->get_parameter("checkObstacleTopic", checkObstacleTopic);
+  nh->get_parameter("slowDownTopic", slowDownTopic);
+  nh->get_parameter("pathTopic", pathTopic);
+  nh->get_parameter("freePathsTopic", freePathsTopic);
+  nh->get_parameter("vehicleFrame", vehicleFrame);
 
-  auto subOdometry = nh->create_subscription<nav_msgs::msg::Odometry>("/state_estimation", 5, odometryHandler);
+  auto subOdometry = nh->create_subscription<nav_msgs::msg::Odometry>(
+      stateEstimationTopic, 5, odometryHandler);
 
-  auto subLaserCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/registered_scan", 5, laserCloudHandler);
+  auto subLaserCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
+      registeredScanTopic, 5, laserCloudHandler);
 
-  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/terrain_map", 5, terrainCloudHandler);
+  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>(
+      terrainMapTopic, 5, terrainCloudHandler);
 
   auto subJoystick = nh->create_subscription<sensor_msgs::msg::Joy>("/joy", 5, joystickHandler);
 
-  auto subGoal = nh->create_subscription<geometry_msgs::msg::PointStamped> ("/way_point", 5, goalHandler);
+  auto subGoal = nh->create_subscription<geometry_msgs::msg::PointStamped>(
+      waypointTopic, 5, goalHandler);
 
-  auto subSpeed = nh->create_subscription<std_msgs::msg::Float32>("/speed", 5, speedHandler);
+  auto subSpeed = nh->create_subscription<std_msgs::msg::Float32>(
+      speedTopic, 5, speedHandler);
 
   auto subBoundary = nh->create_subscription<geometry_msgs::msg::PolygonStamped>("/navigation_boundary", 5, boundaryHandler);
 
   auto subAddedObstacles = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/added_obstacles", 5, addedObstaclesHandler);
 
-  auto subCheckObstacle = nh->create_subscription<std_msgs::msg::Bool>("/check_obstacle", 5, checkObstacleHandler);
+  auto subCheckObstacle = nh->create_subscription<std_msgs::msg::Bool>(
+      checkObstacleTopic, 5, checkObstacleHandler);
 
-  auto pubSlowDown = nh->create_publisher<std_msgs::msg::Int8> ("/slow_down", 5);
+  auto pubSlowDown =
+      nh->create_publisher<std_msgs::msg::Int8>(slowDownTopic, 5);
   std_msgs::msg::Int8 slow;
 
-  auto pubPath = nh->create_publisher<nav_msgs::msg::Path>("/path", 5);
+  auto pubPath = nh->create_publisher<nav_msgs::msg::Path>(pathTopic, 5);
   nav_msgs::msg::Path path;
 
   #if PLOTPATHSET == 1
-  auto pubFreePaths = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/free_paths", 2);
+  auto pubFreePaths =
+      nh->create_publisher<sensor_msgs::msg::PointCloud2>(freePathsTopic, 2);
   #endif
 
   //auto pubLaserCloud = nh->create_publisher<sensor_msgs::msg::PointCloud2> ("/stacked_scans", 2);
@@ -939,7 +980,7 @@ int main(int argc, char** argv)
           }
 
           path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
-          path.header.frame_id = "vehicle";
+          path.header.frame_id = vehicleFrame;
           pubPath->publish(path);
 
           #if PLOTPATHSET == 1
@@ -985,7 +1026,7 @@ int main(int argc, char** argv)
           sensor_msgs::msg::PointCloud2 freePaths2;
           pcl::toROSMsg(*freePaths, freePaths2);
           freePaths2.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
-          freePaths2.header.frame_id = "vehicle";
+          freePaths2.header.frame_id = vehicleFrame;
           pubFreePaths->publish(freePaths2);
           #endif
         }
@@ -1011,7 +1052,7 @@ int main(int argc, char** argv)
         path.poses[0].pose.position.z = 0;
 
         path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
-        path.header.frame_id = "vehicle";
+        path.header.frame_id = vehicleFrame;
         pubPath->publish(path);
 
         #if PLOTPATHSET == 1
@@ -1019,7 +1060,7 @@ int main(int argc, char** argv)
         sensor_msgs::msg::PointCloud2 freePaths2;
         pcl::toROSMsg(*freePaths, freePaths2);
         freePaths2.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
-        freePaths2.header.frame_id = "vehicle";
+        freePaths2.header.frame_id = vehicleFrame;
         pubFreePaths->publish(freePaths2);
         #endif
       }
@@ -1027,7 +1068,7 @@ int main(int argc, char** argv)
       /*sensor_msgs::msg::PointCloud2 plannerCloud2;
       pcl::toROSMsg(*plannerCloudCrop, plannerCloud2);
       plannerCloud2.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
-      plannerCloud2.header.frame_id = "vehicle";
+      plannerCloud2.header.frame_id = vehicleFrame;
       pubLaserCloud->publish(plannerCloud2);*/
     }
 

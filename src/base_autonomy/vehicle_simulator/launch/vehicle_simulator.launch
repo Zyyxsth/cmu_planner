@@ -33,6 +33,12 @@ def generate_launch_description():
   maxIncl = LaunchConfiguration('maxIncl')
   pause = LaunchConfiguration('pause')
   world_name = LaunchConfiguration('world_name')
+  terrainMapTopic = LaunchConfiguration('terrainMapTopic')
+  cmdVelTopic = LaunchConfiguration('cmdVelTopic')
+  stateEstimationTopic = LaunchConfiguration('stateEstimationTopic')
+  modelStateTopic = LaunchConfiguration('modelStateTopic')
+  mapFrame = LaunchConfiguration('mapFrame')
+  sensorFrame = LaunchConfiguration('sensorFrame')
 
   declare_vehicleHeight = DeclareLaunchArgument('vehicleHeight', default_value='0.75', description='')
   declare_vehicleX = DeclareLaunchArgument('vehicleX', default_value='0.0', description='')
@@ -54,6 +60,12 @@ def generate_launch_description():
   declare_maxIncl = DeclareLaunchArgument('maxIncl', default_value='30.0', description='')
   declare_pause = DeclareLaunchArgument('pause', default_value='false', description='')
   declare_world_name = DeclareLaunchArgument('world_name', default_value='garage', description='')
+  declare_terrainMapTopic = DeclareLaunchArgument('terrainMapTopic', default_value='/terrain_map', description='')
+  declare_cmdVelTopic = DeclareLaunchArgument('cmdVelTopic', default_value='/cmd_vel', description='')
+  declare_stateEstimationTopic = DeclareLaunchArgument('stateEstimationTopic', default_value='/state_estimation', description='')
+  declare_modelStateTopic = DeclareLaunchArgument('modelStateTopic', default_value='/unity_sim/set_model_state', description='')
+  declare_mapFrame = DeclareLaunchArgument('mapFrame', default_value='map', description='')
+  declare_sensorFrame = DeclareLaunchArgument('sensorFrame', default_value='sensor', description='')
 
   start_vehicle_simulator = Node(
     package='vehicle_simulator', 
@@ -78,6 +90,12 @@ def generate_launch_description():
         'smoothRateIncl': smoothRateIncl,
         'InclFittingThre': InclFittingThre,
         'maxIncl': maxIncl,
+        'terrainMapTopic': terrainMapTopic,
+        'cmdVelTopic': cmdVelTopic,
+        'stateEstimationTopic': stateEstimationTopic,
+        'modelStateTopic': modelStateTopic,
+        'mapFrame': mapFrame,
+        'sensorFrame': sensorFrame,
       }
       ],
       output='screen'
@@ -113,6 +131,12 @@ def generate_launch_description():
   ld.add_action(declare_maxIncl)
   ld.add_action(declare_pause)
   ld.add_action(declare_world_name)
+  ld.add_action(declare_terrainMapTopic)
+  ld.add_action(declare_cmdVelTopic)
+  ld.add_action(declare_stateEstimationTopic)
+  ld.add_action(declare_modelStateTopic)
+  ld.add_action(declare_mapFrame)
+  ld.add_action(declare_sensorFrame)
   ld.add_action(OpaqueFunction(function=declare_world_action, args=[world_name]))
   
   ld.add_action(delayed_start_vehicle_simulator)

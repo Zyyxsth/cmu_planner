@@ -7,10 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import FrontendLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, PushRosNamespace
-
-
-def _parse_bool(value):
-    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+import yaml
 
 
 def _topic(robot_ns, leaf):
@@ -21,42 +18,49 @@ def _frame(robot_ns, leaf):
     return f'{robot_ns}/{leaf}' if robot_ns else leaf
 
 
-def _default_robot_ns(robot_id, robot_num, robot_ns):
+def _default_robot_ns(robot_id, robot_ns):
     robot_ns = robot_ns.strip().strip('/')
     if robot_ns:
         return robot_ns
-    if robot_num > 1 or robot_id != 0:
+    if robot_id != 0:
         return f'robot_{robot_id}'
     return ''
 
 
-def _default_test_id(robot_num):
-    return f'00{robot_num:02d}'
-
-
-def _robot_types_arg(robot_types, robot_num):
-    robot_types = [item.strip() for item in robot_types.split(',') if item.strip()]
-    if not robot_types:
-        return ','.join(['wheeled'] * robot_num)
-    return ','.join(robot_types)
-
-
-def _resolved_int(primary, fallback):
-    primary = primary.strip()
-    if primary:
-        return int(primary)
-    return int(fallback)
-
-
-def _resolved_str(primary, fallback):
-    primary = primary.strip()
-    if primary:
-        return primary
-    return fallback
+def _load_single_planner_params(scenario):
+    share_dir = get_package_share_directory('tare_planner')
+    candidate_paths = [
+        os.path.join(share_dir, 'config', scenario + '.yaml'),
+        os.path.join(share_dir, scenario + '.yaml'),
+        os.path.join(
+            os.path.dirname(__file__),
+            '..',
+            '..',
+            '..',
+            'exploration_planner',
+            'tare_planner',
+            'config',
+            scenario + '.yaml',
+        ),
+    ]
+    config_path = None
+    for path in candidate_paths:
+        if os.path.exists(path):
+            config_path = path
+            break
+    if config_path is None:
+        raise FileNotFoundError(
+            f'Cannot find single planner scenario yaml for {scenario}. Tried: {candidate_paths}'
+        )
+    with open(config_path, 'r', encoding='utf-8') as scenario_file:
+        raw = yaml.safe_load(scenario_file) or {}
+    if 'tare_planner_node' in raw:
+        return raw['tare_planner_node'].get('ros__parameters', {})
+    return raw
 
 
 def launch_setup(context):
-    mtare_planner_config = str(LaunchConfiguration('mtare_planner_config').perform(context))
+    exploration_planner_config = str(LaunchConfiguration('exploration_planner_config').perform(context))
     world_name = LaunchConfiguration('world_name')
     vehicle_height = LaunchConfiguration('vehicleHeight')
     camera_offset_z = LaunchConfiguration('cameraOffsetZ')
@@ -66,27 +70,12 @@ def launch_setup(context):
     vehicle_z = LaunchConfiguration('vehicleZ')
     vehicle_yaw = LaunchConfiguration('vehicleYaw')
     check_terrain_conn = LaunchConfiguration('checkTerrainConn')
-    use_boundary = LaunchConfiguration('use_boundary')
 
     robot_id = int(LaunchConfiguration('robot_id').perform(context))
-    robot_num = _resolved_int(
-        LaunchConfiguration('kRobotNum').perform(context),
-        LaunchConfiguration('robot_num').perform(context),
-    )
-    robot_ns = _default_robot_ns(
-        robot_id,
-        robot_num,
-        str(LaunchConfiguration('robot_ns').perform(context)),
-    )
+    robot_ns = _default_robot_ns(robot_id, str(LaunchConfiguration('robot_ns').perform(context)))
     ros_tcp_port = int(LaunchConfiguration('ros_tcp_port').perform(context))
-    coordination = _parse_bool(LaunchConfiguration('coordination').perform(context))
-    k_auto_start = _parse_bool(LaunchConfiguration('kAutoStart').perform(context))
-    tare_prefix = str(LaunchConfiguration('tare_prefix').perform(context))
-    test_id = _resolved_str(
-        LaunchConfiguration('kTestID').perform(context),
-        str(LaunchConfiguration('test_id').perform(context)).strip() or _default_test_id(robot_num),
-    )
-    robot_types = _robot_types_arg(str(LaunchConfiguration('robot_types').perform(context)), robot_num)
+    k_auto_start = str(LaunchConfiguration('kAutoStart').perform(context)).strip().lower() in ('1', 'true', 'yes', 'on')
+    planner_params = _load_single_planner_params(exploration_planner_config)
 
     terrain_map_topic = _topic(robot_ns, 'terrain_map')
     terrain_map_ext_topic = _topic(robot_ns, 'terrain_map_ext')
@@ -270,26 +259,23 @@ def launch_setup(context):
                 'autorepeat_rate': 0.0,
             }],
         ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(get_package_share_directory('mtare_tare_planner'), 'explore_namespaced.launch.py')
-            ),
-            launch_arguments={
-                'scenario': mtare_planner_config,
-                'robot_ns': '',
-                'tare_prefix': tare_prefix,
-                'kAutoStart': str(k_auto_start).lower(),
-                'robot_id': str(robot_id),
-                'kRobotNum': str(robot_num),
-                'kTestID': test_id,
-                'robot_types': robot_types,
-                    'sub_state_estimation_topic_': state_estimation_topic,
-                'sub_registered_scan_topic_': registered_scan_topic,
-                'sub_terrain_map_topic_': terrain_map_topic,
-                'sub_terrain_map_ext_topic_': terrain_map_ext_topic,
-                'pub_runtime_topic_': runtime_topic,
-                'pub_waypoint_topic_': waypoint_topic,
-            }.items(),
+        Node(
+            package='tare_planner',
+            executable='tare_planner_node',
+            name='tare_planner_node',
+            output='screen',
+            parameters=[
+                planner_params,
+                {
+                    'kAutoStart': k_auto_start,
+                    'sub_state_estimation_topic_': state_estimation_at_scan_topic,
+                    'sub_registered_scan_topic_': registered_scan_topic,
+                    'sub_terrain_map_topic_': terrain_map_topic,
+                    'sub_terrain_map_ext_topic_': terrain_map_ext_topic,
+                    'pub_runtime_topic_': runtime_topic,
+                    'pub_waypoint_topic_': waypoint_topic,
+                },
+            ],
         ),
     ]
 
@@ -300,7 +286,7 @@ def launch_setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('mtare_planner_config', default_value='indoor', description=''),
+        DeclareLaunchArgument('exploration_planner_config', default_value='indoor', description=''),
         DeclareLaunchArgument('world_name', default_value='unity', description=''),
         DeclareLaunchArgument('vehicleHeight', default_value='0.75', description=''),
         DeclareLaunchArgument('cameraOffsetZ', default_value='0.041', description=''),
@@ -310,23 +296,11 @@ def generate_launch_description():
         DeclareLaunchArgument('terrainZ', default_value='0.0', description=''),
         DeclareLaunchArgument('vehicleYaw', default_value='0.0', description=''),
         DeclareLaunchArgument('checkTerrainConn', default_value='true', description=''),
-        DeclareLaunchArgument('use_boundary', default_value='true', description='Publish navigation boundary'),
         DeclareLaunchArgument('robot_id', default_value='0', description='Robot ID'),
-        DeclareLaunchArgument('robot_num', default_value='1', description='Total number of robots'),
-        DeclareLaunchArgument('kRobotNum', default_value='', description='Compatibility alias for robot_num'),
         DeclareLaunchArgument('robot_ns', default_value='', description='Robot namespace'),
         DeclareLaunchArgument('ros_tcp_port', default_value='10000', description='ROS TCP endpoint port'),
-        DeclareLaunchArgument('coordination', default_value='false', description='Enable coordination'),
         DeclareLaunchArgument('kAutoStart', default_value='false', description='Start exploration automatically'),
-        DeclareLaunchArgument('tare_prefix', default_value='', description='Optional launch prefix for tare_planner_node'),
         DeclareLaunchArgument('launch_visualization', default_value='true', description='Launch visualization tools'),
         DeclareLaunchArgument('launch_joy', default_value='true', description='Launch joystick node'),
-        DeclareLaunchArgument('test_id', default_value='', description='MTARE test id'),
-        DeclareLaunchArgument('kTestID', default_value='', description='Compatibility alias for test_id'),
-        DeclareLaunchArgument(
-            'robot_types',
-            default_value='',
-            description='Comma-separated robot types, defaults to wheeled',
-        ),
         OpaqueFunction(function=launch_setup),
     ])

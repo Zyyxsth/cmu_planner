@@ -240,6 +240,15 @@ int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   nh = rclcpp::Node::make_shared("pathFollower");
+  std::string stateEstimationTopic = "/state_estimation";
+  std::string pathTopic = "/path";
+  std::string speedTopic = "/speed";
+  std::string stopTopic = "/stop";
+  std::string slowDownTopic = "/slow_down";
+  std::string cmdVelTopic = "/cmd_vel";
+  std::string mapClearingTopic = "/map_clearing";
+  std::string cloudClearingTopic = "/cloud_clearing";
+  std::string vehicleFrame = "vehicle";
 
   nh->declare_parameter<double>("sensorOffsetX", sensorOffsetX);
   nh->declare_parameter<double>("sensorOffsetY", sensorOffsetY);
@@ -269,6 +278,17 @@ int main(int argc, char** argv)
   nh->declare_parameter<bool>("autonomyMode", autonomyMode);
   nh->declare_parameter<double>("autonomySpeed", autonomySpeed);
   nh->declare_parameter<double>("joyToSpeedDelay", joyToSpeedDelay);
+  nh->declare_parameter<std::string>("stateEstimationTopic",
+                                     stateEstimationTopic);
+  nh->declare_parameter<std::string>("pathTopic", pathTopic);
+  nh->declare_parameter<std::string>("speedTopic", speedTopic);
+  nh->declare_parameter<std::string>("stopTopic", stopTopic);
+  nh->declare_parameter<std::string>("slowDownTopic", slowDownTopic);
+  nh->declare_parameter<std::string>("cmdVelTopic", cmdVelTopic);
+  nh->declare_parameter<std::string>("mapClearingTopic", mapClearingTopic);
+  nh->declare_parameter<std::string>("cloudClearingTopic",
+                                     cloudClearingTopic);
+  nh->declare_parameter<std::string>("vehicleFrame", vehicleFrame);
 
   nh->get_parameter("sensorOffsetX", sensorOffsetX);
   nh->get_parameter("sensorOffsetY", sensorOffsetY);
@@ -298,18 +318,32 @@ int main(int argc, char** argv)
   nh->get_parameter("autonomyMode", autonomyMode);
   nh->get_parameter("autonomySpeed", autonomySpeed);
   nh->get_parameter("joyToSpeedDelay", joyToSpeedDelay);
+  nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
+  nh->get_parameter("pathTopic", pathTopic);
+  nh->get_parameter("speedTopic", speedTopic);
+  nh->get_parameter("stopTopic", stopTopic);
+  nh->get_parameter("slowDownTopic", slowDownTopic);
+  nh->get_parameter("cmdVelTopic", cmdVelTopic);
+  nh->get_parameter("mapClearingTopic", mapClearingTopic);
+  nh->get_parameter("cloudClearingTopic", cloudClearingTopic);
+  nh->get_parameter("vehicleFrame", vehicleFrame);
 
-  auto subOdom = nh->create_subscription<nav_msgs::msg::Odometry>("/state_estimation", 5, odomHandler);
+  auto subOdom = nh->create_subscription<nav_msgs::msg::Odometry>(
+      stateEstimationTopic, 5, odomHandler);
 
-  auto subPath = nh->create_subscription<nav_msgs::msg::Path>("/path", 5, pathHandler);
+  auto subPath =
+      nh->create_subscription<nav_msgs::msg::Path>(pathTopic, 5, pathHandler);
 
   auto subJoystick = nh->create_subscription<sensor_msgs::msg::Joy>("/joy", 5, joystickHandler);
 
-  auto subSpeed = nh->create_subscription<std_msgs::msg::Float32>("/speed", 5, speedHandler);
+  auto subSpeed = nh->create_subscription<std_msgs::msg::Float32>(
+      speedTopic, 5, speedHandler);
 
-  auto subStop = nh->create_subscription<std_msgs::msg::Int8>("/stop", 5, stopHandler);
+  auto subStop = nh->create_subscription<std_msgs::msg::Int8>(
+      stopTopic, 5, stopHandler);
 
-  auto subSlowDown = nh->create_subscription<std_msgs::msg::Int8>("/slow_down", 5, slowDownHandler);
+  auto subSlowDown = nh->create_subscription<std_msgs::msg::Int8>(
+      slowDownTopic, 5, slowDownHandler);
 
   auto subRobotStatus = nh->create_subscription<motion_msgs::msg::RobotStatus>("diablo/sensor/Body_state", 5, robotStatusHandler);
 
@@ -317,18 +351,21 @@ int main(int argc, char** argv)
 
   auto subIMU = nh->create_subscription<ception_msgs::msg::IMUEuler>("/diablo/sensor/ImuEuler", 5, imuHandler);
 
-  auto pubSpeed = nh->create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel", 5);
+  auto pubSpeed =
+      nh->create_publisher<geometry_msgs::msg::TwistStamped>(cmdVelTopic, 5);
   geometry_msgs::msg::TwistStamped cmd_vel;
-  cmd_vel.header.frame_id = "vehicle";
+  cmd_vel.header.frame_id = vehicleFrame;
 
   auto pubMotionCtrl = nh->create_publisher<motion_msgs::msg::MotionCtrl>("diablo/MotionCmd", 5);
   motion_msgs::msg::MotionCtrl ctrl_msg;
 
-  auto pubClearing = nh->create_publisher<std_msgs::msg::Float32>("/map_clearing", 5);
+  auto pubClearing =
+      nh->create_publisher<std_msgs::msg::Float32>(mapClearingTopic, 5);
   std_msgs::msg::Float32 clear_msg;
   clear_msg.data = 8.0;
 
-  auto pubClearingExt = nh->create_publisher<std_msgs::msg::Float32>("/cloud_clearing", 5);
+  auto pubClearingExt =
+      nh->create_publisher<std_msgs::msg::Float32>(cloudClearingTopic, 5);
   std_msgs::msg::Float32 clear_msg_ext;
   clear_msg_ext.data = 30.0;
 

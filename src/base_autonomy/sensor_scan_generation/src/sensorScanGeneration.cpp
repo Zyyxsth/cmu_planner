@@ -102,6 +102,10 @@ int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   auto nh = rclcpp::Node::make_shared("sensor_scan");
+  std::string stateEstimationTopic = "/state_estimation";
+  std::string registeredScanTopic = "/registered_scan";
+  std::string stateEstimationAtScanTopic = "/state_estimation_at_scan";
+  std::string sensorScanTopic = "/sensor_scan";
 
   // ROS message filters
   message_filters::Subscriber<nav_msgs::msg::Odometry> subOdometry;
@@ -125,15 +129,30 @@ int main(int argc, char** argv)
     false
   };
 
-  subOdometry.subscribe(nh, "/state_estimation", qos_profile);
-  subLaserCloud.subscribe(nh, "/registered_scan", qos_profile);
+  nh->declare_parameter<std::string>("stateEstimationTopic",
+                                     stateEstimationTopic);
+  nh->declare_parameter<std::string>("registeredScanTopic",
+                                     registeredScanTopic);
+  nh->declare_parameter<std::string>("stateEstimationAtScanTopic",
+                                     stateEstimationAtScanTopic);
+  nh->declare_parameter<std::string>("sensorScanTopic", sensorScanTopic);
+  nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
+  nh->get_parameter("registeredScanTopic", registeredScanTopic);
+  nh->get_parameter("stateEstimationAtScanTopic", stateEstimationAtScanTopic);
+  nh->get_parameter("sensorScanTopic", sensorScanTopic);
+
+  subOdometry.subscribe(nh, stateEstimationTopic, qos_profile);
+  subLaserCloud.subscribe(nh, registeredScanTopic, qos_profile);
   sync_.reset(new Sync(syncPolicy(100), subOdometry, subLaserCloud));
   sync_->registerCallback(std::bind(laserCloudAndOdometryHandler, placeholders::_1, placeholders::_2));
-  pubOdometryPointer = nh->create_publisher<nav_msgs::msg::Odometry>("/state_estimation_at_scan", 5);
+  pubOdometryPointer =
+      nh->create_publisher<nav_msgs::msg::Odometry>(
+          stateEstimationAtScanTopic, 5);
 
   tfBroadcasterPointer = std::make_unique<tf2_ros::TransformBroadcaster>(*nh);
 
-  pubLaserCloud = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/sensor_scan", 2);
+  pubLaserCloud =
+      nh->create_publisher<sensor_msgs::msg::PointCloud2>(sensorScanTopic, 2);
 
   rclcpp::spin(nh);
 

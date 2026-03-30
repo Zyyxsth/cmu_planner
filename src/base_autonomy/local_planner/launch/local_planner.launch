@@ -10,6 +10,22 @@
   <arg name="joyToSpeedDelay" default="2.0"/>
   <arg name="goalX" default="0.0"/>
   <arg name="goalY" default="0.0"/>
+  <arg name="stateEstimationTopic" default="/state_estimation"/>
+  <arg name="registeredScanTopic" default="/registered_scan"/>
+  <arg name="terrainMapTopic" default="/terrain_map"/>
+  <arg name="waypointTopic" default="/way_point"/>
+  <arg name="speedTopic" default="/speed"/>
+  <arg name="checkObstacleTopic" default="/check_obstacle"/>
+  <arg name="slowDownTopic" default="/slow_down"/>
+  <arg name="pathTopic" default="/path"/>
+  <arg name="freePathsTopic" default="/free_paths"/>
+  <arg name="stopTopic" default="/stop"/>
+  <arg name="cmdVelTopic" default="/cmd_vel"/>
+  <arg name="mapClearingTopic" default="/map_clearing"/>
+  <arg name="cloudClearingTopic" default="/cloud_clearing"/>
+  <arg name="sensorFrame" default="sensor"/>
+  <arg name="vehicleFrame" default="vehicle"/>
+  <arg name="cameraFrame" default="camera"/>
 
   <node pkg="local_planner" exec="localPlanner" name="localPlanner" output="screen">
     <param name="pathFolder" value="$(find-pkg-share local_planner)/paths" />
@@ -54,6 +70,16 @@
     <param name="freezeTime" value="2.0" />
     <param name="goalX" value="$(var goalX)" />
     <param name="goalY" value="$(var goalY)" />
+    <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
+    <param name="registeredScanTopic" value="$(var registeredScanTopic)" />
+    <param name="terrainMapTopic" value="$(var terrainMapTopic)" />
+    <param name="waypointTopic" value="$(var waypointTopic)" />
+    <param name="speedTopic" value="$(var speedTopic)" />
+    <param name="checkObstacleTopic" value="$(var checkObstacleTopic)" />
+    <param name="slowDownTopic" value="$(var slowDownTopic)" />
+    <param name="pathTopic" value="$(var pathTopic)" />
+    <param name="freePathsTopic" value="$(var freePathsTopic)" />
+    <param name="vehicleFrame" value="$(var vehicleFrame)" />
   </node>
 
   <node pkg="local_planner" exec="pathFollower" name="pathFollower" output="screen">
@@ -85,6 +111,15 @@
     <param name="autonomyMode" value="$(var autonomyMode)" />
     <param name="autonomySpeed" value="$(var autonomySpeed)" />
     <param name="joyToSpeedDelay" value="$(var joyToSpeedDelay)" />
+    <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
+    <param name="pathTopic" value="$(var pathTopic)" />
+    <param name="speedTopic" value="$(var speedTopic)" />
+    <param name="stopTopic" value="$(var stopTopic)" />
+    <param name="slowDownTopic" value="$(var slowDownTopic)" />
+    <param name="cmdVelTopic" value="$(var cmdVelTopic)" />
+    <param name="mapClearingTopic" value="$(var mapClearingTopic)" />
+    <param name="cloudClearingTopic" value="$(var cloudClearingTopic)" />
+    <param name="vehicleFrame" value="$(var vehicleFrame)" />
   </node>
 
   <node pkg="tf2_ros" exec="static_transform_publisher" name="vehicleTransPublisher" args="-$(var sensorOffsetX) -$(var sensorOffsetY) 0 0 0 0 /sensor /vehicle"/>

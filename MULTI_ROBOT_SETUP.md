@@ -3,7 +3,7 @@
 ## 方案对比
 
 ### 方案1：独立 Unity 实例（推荐 ✅）
-每个机器人有独立的 Unity 实例，完全隔离。
+每个机器人有独立的 Unity 实例，完全隔离。现在仓库里已经提供了基于 Docker 的隔离启动脚本，不需要再去硬改 Unity DLL。
 
 **优点：**
 - 实现简单，无需修改代码
@@ -16,11 +16,8 @@
 
 **使用方法：**
 ```bash
-# Terminal 1: Robot 0
-ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py robot_id:=0
-
-# Terminal 2: Robot 1 (需要第二个 Unity 实例，使用不同端口)
-# 复制 Unity 目录并修改端口配置（见下方说明）
+# 一条命令起 2 机 ROS + 2 个 Docker Unity
+./system_simulation_with_mtare_planner_multi_robot.sh 2 docker
 ```
 
 ### 方案2：共享 Unity 实例（需修改代码 ⚠️）
@@ -41,66 +38,48 @@ ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py rob
 
 ## 实施方案1：独立 Unity 实例
 
-### 步骤1：创建多实例 Unity 配置
+### 步骤1：准备 Docker 镜像
 
-由于 Unity 端口硬编码，需要创建多个实例目录：
+Docker 镜像里已经补了 `socat` 和 Unity 常见运行库。首次使用前建议重建：
 
 ```bash
-cd src/base_autonomy/vehicle_simulator/mesh/unity/
-
-# 创建 robot_0 的 Unity 实例（端口 10000）
-cp -r environment unity_robot_0
-cd unity_robot_0/Model_Data/Managed/
-# 修改 DLL 中的端口（需要 .NET 反编译/编译工具）
-
-# 创建 robot_1 的 Unity 实例（端口 10001）
-cd ../../..
-cp -r environment unity_robot_1
-cd unity_robot_1/Model_Data/Managed/
-# 修改 DLL 中的端口为 10001
+docker build -t mtare-planner:latest .
 ```
 
-**注意：** 修改编译后的 Unity DLL 需要专业工具（如 dnSpy 或 ILSpy），不推荐。
+### 步骤2：启动独立 Unity 容器
 
-### 替代方案：使用容器隔离
-
-使用 Docker/Podman 容器隔离每个 Unity 实例的网络：
+仓库根目录提供了辅助脚本，会在容器内监听 `127.0.0.1:10000`，再转发到主机上的 `10000/10001/...`：
 
 ```bash
-# 启动容器 0（Unity 端口 10000，映射到主机 10000）
-docker run --rm -it --network=host \
-  -v $(pwd)/environment:/unity \
-  --name unity_robot_0 \
-  ubuntu:22.04 /unity/Model.x86_64
-
-# 启动容器 1（Unity 端口 10000，映射到主机 10001）
-# 使用端口映射而非 host 网络
-docker run --rm -it -p 10001:10000 \
-  -v $(pwd)/environment:/unity \
-  --name unity_robot_1 \
-  ubuntu:22.04 /unity/Model.x86_64
+./run_unity_instance_docker.sh start 0 10000
+./run_unity_instance_docker.sh start 1 10001
 ```
 
-### 步骤2：启动多机器人系统
+停止容器：
 
 ```bash
-# 启动第一个机器人（使用 unity_robot_0）
-export UNITY_PATH=src/base_autonomy/vehicle_simulator/mesh/unity/unity_robot_0/Model.x86_64
-ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py robot_id:=0
+./run_unity_instance_docker.sh stop 0
+./run_unity_instance_docker.sh stop 1
+```
 
-# 启动第二个机器人（使用 unity_robot_1）
-export UNITY_PATH=src/base_autonomy/vehicle_simulator/mesh/unity/unity_robot_1/Model.x86_64
-ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py robot_id:=1
+### 步骤3：启动多机器人系统
+
+```bash
+# 推荐：脚本统一起 ROS + Docker Unity + RViz
+./system_simulation_with_mtare_planner_multi_robot.sh 2 docker
+
+# 只起 ROS 多机，不起 Unity
+./system_simulation_with_mtare_planner_multi_robot.sh 2 nounity
 ```
 
 ---
 
 ## 当前 Launch 文件说明
 
-`system_simulation_with_mtare_planner_multi_robot.launch.py` 配置：
+`system_simulation_with_mtare_planner_multi_robot.launch.py` 当前行为：
 
-- **Robot 0**: TCP Endpoint 端口 10000, 位置 (0, 0)
-- **Robot 1**: TCP Endpoint 端口 10001, 位置 (10, 0)
+- **Robot i**: TCP Endpoint 端口 `10000 + i`
+- **Robot i**: ROS namespace `/robot_i`
 - **通讯话题**: `/wheeled0/exploration_info`, `/wheeled1/exploration_info`（全局，用于协调）
 - **数据话题**: `/robot_0/...`, `/robot_1/...`（带 namespace，隔离）
 
@@ -114,12 +93,11 @@ ros2 launch vehicle_simulator system_simulation_with_mtare_planner.launch.py rob
 ./system_simulation_with_mtare_planner.sh
 ```
 
-### 多机器人仿真（使用 Gazebo 替代 Unity）
-如果需要真正的多机器人仿真且无需修改 Unity，建议使用 Gazebo：
+### 多机器人算法联调（先不带 Unity）
+如果先只看协调算法和命名空间是否正常：
 
 ```bash
-# 修改 launch 文件使用 Gazebo 而非 Unity
-ros2 launch vehicle_simulator system_simulation_with_mtare_planner_multi_robot.launch.py world_name:=gazebo
+./system_simulation_with_mtare_planner_multi_robot_nounity.sh
 ```
 
 ### 多机器人实机测试
@@ -143,8 +121,8 @@ ros2 launch vehicle_simulator system_real_robot_with_mtare_planner.launch.py
 - `/robot_1/registered_scan` - Robot 1 的点云
 - `/robot_0/state_estimation` - Robot 0 的状态
 - `/robot_1/state_estimation` - Robot 1 的状态
-- `/robot_0/vehicleCommand` - Robot 0 的控制指令
-- `/robot_1/vehicleCommand` - Robot 1 的控制指令
+- `/robot_0/cmd_vel` - Robot 0 的控制指令
+- `/robot_1/cmd_vel` - Robot 1 的控制指令
 
 ### ROS TCP Endpoint 配置
 
@@ -155,7 +133,7 @@ ros2 launch vehicle_simulator system_real_robot_with_mtare_planner.launch.py
 | Robot 0 | /robot_0 | 10000 |
 | Robot 1 | /robot_1 | 10001 |
 
-Unity 实例需要连接到对应端口。
+Docker Unity 容器里的 `127.0.0.1:10000` 会被转发到主机对应端口，所以不需要修改 Unity 可执行文件。
 
 ---
 

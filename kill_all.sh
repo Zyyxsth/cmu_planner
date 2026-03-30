@@ -10,6 +10,7 @@ pkill -f "vehicleSimulator" 2>/dev/null
 pkill -f "localPlanner" 2>/dev/null
 pkill -f "pathFollower" 2>/dev/null
 pkill -f "terrainAnalysis" 2>/dev/null
+pkill -f "terrainAnalysisExt" 2>/dev/null
 pkill -f "sensorScanGeneration" 2>/dev/null
 pkill -f "visualizationTools" 2>/dev/null
 pkill -f "default_server_endpoint" 2>/dev/null
@@ -17,6 +18,7 @@ pkill -9 "static_transform_publisher" 2>/dev/null
 pkill -9 "joy_node" 2>/dev/null
 pkill -f "navigationBoundary" 2>/dev/null
 pkill -f "sim_image_repub" 2>/dev/null
+rm -f /dev/shm/fastrtps_* /dev/shm/fastdds* 2>/dev/null || true
 
 # Kill Unity
 pkill -9 "Model.x86_64" 2>/dev/null
