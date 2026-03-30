@@ -10,6 +10,26 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def _default_boundary_file():
+    # Allow override via environment variable
+    env_boundary = os.environ.get('MTARE_BOUNDARY_FILE', '')
+    if env_boundary and os.path.exists(env_boundary):
+        return env_boundary
+    # Default: use boundary from mtare_tare_planner package
+    try:
+        return os.path.join(
+            get_package_share_directory('mtare_tare_planner'),
+            'boundary.ply'
+        )
+    except Exception:
+        # Fallback to local data directory
+        return os.path.join(
+            get_package_share_directory('vehicle_simulator'),
+            'data',
+            'indoor_boundary.ply'
+        )
+
+
 def _default_test_id(robot_num):
     return f'00{robot_num:02d}'
 
@@ -114,6 +134,28 @@ def generate_launch_description():
             'use_simulation',
             default_value='true',
             description='Compatibility argument for no-Unity test scripts',
+        ),
+        DeclareLaunchArgument(
+            'use_boundary',
+            default_value='true',
+            description='Publish navigation boundary to constrain exploration',
+        ),
+        DeclareLaunchArgument(
+            'boundary_file',
+            default_value=_default_boundary_file(),
+            description='Path to boundary PLY file',
+        ),
+        Node(
+            package='mtare_tare_planner',
+            executable='navigationBoundary',
+            name='navigation_boundary_publisher',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('use_boundary')),
+            parameters=[
+                {'boundary_file_dir': LaunchConfiguration('boundary_file')},
+                {'sendBoundary': True},
+                {'sendBoundaryInterval': 2}
+            ],
         ),
         Node(
             package='joy',
