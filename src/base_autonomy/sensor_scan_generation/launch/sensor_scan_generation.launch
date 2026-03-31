@@ -4,12 +4,20 @@
   <arg name="registeredScanTopic" default="/registered_scan"/>
   <arg name="stateEstimationAtScanTopic" default="/state_estimation_at_scan"/>
   <arg name="sensorScanTopic" default="/sensor_scan"/>
+  <arg name="coloredRegisteredScanTopic" default="/registered_scan_colored"/>
+  <arg name="robot_id" default="0"/>
+  <arg name="use_robot_color" default="true"/>
+  <arg name="publish_colored_registered_scan" default="true"/>
 
   <node pkg="sensor_scan_generation" exec="sensorScanGeneration" name="sensorScanGeneration" output="screen">
     <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
     <param name="registeredScanTopic" value="$(var registeredScanTopic)" />
     <param name="stateEstimationAtScanTopic" value="$(var stateEstimationAtScanTopic)" />
     <param name="sensorScanTopic" value="$(var sensorScanTopic)" />
+    <param name="coloredRegisteredScanTopic" value="$(var coloredRegisteredScanTopic)" />
+    <param name="robot_id" value="$(var robot_id)" />
+    <param name="use_robot_color" value="$(var use_robot_color)" />
+    <param name="publish_colored_registered_scan" value="$(var publish_colored_registered_scan)" />
   </node>
 
 </launch>

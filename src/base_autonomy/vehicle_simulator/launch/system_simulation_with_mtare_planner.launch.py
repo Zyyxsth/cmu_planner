@@ -94,6 +94,7 @@ def launch_setup(context):
     state_estimation_at_scan_topic = _topic(robot_ns, 'state_estimation_at_scan')
     registered_scan_topic = _topic(robot_ns, 'registered_scan')
     sensor_scan_topic = _topic(robot_ns, 'sensor_scan')
+    colored_registered_scan_topic = _topic(robot_ns, 'registered_scan_colored')
     waypoint_topic = _topic(robot_ns, 'way_point')
     speed_topic = _topic(robot_ns, 'speed')
     check_obstacle_topic = _topic(robot_ns, 'check_obstacle')
@@ -236,8 +237,12 @@ def launch_setup(context):
                 'registeredScanTopic': registered_scan_topic,
                 'stateEstimationAtScanTopic': state_estimation_at_scan_topic,
                 'sensorScanTopic': sensor_scan_topic,
+                'coloredRegisteredScanTopic': colored_registered_scan_topic,
                 'mapFrame': 'map',
                 'sensorAtScanFrame': sensor_at_scan_frame,
+                'robot_id': str(robot_id),
+                'use_robot_color': 'true',
+                'publish_colored_registered_scan': 'true',
             }.items(),
         ),
         IncludeLaunchDescription(
