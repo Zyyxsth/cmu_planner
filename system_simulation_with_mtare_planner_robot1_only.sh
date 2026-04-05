@@ -13,6 +13,7 @@ export LD_LIBRARY_PATH="$SCRIPT_DIR/src/mtare_planner/tare_planner/or-tools/lib:
 export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 
 UNITY_MODE=${1:-docker}
+TEST_ID=${2:-${TEST_ID:-0002}}
 DOCKER_IMAGE=${DOCKER_IMAGE:-mtare-planner:latest}
 RVIZ_CONFIG=${RVIZ_CONFIG:-src/mtare_planner/tare_planner/rviz/tare_planner_ground_robot1.rviz}
 TARE_PREFIX=${TARE_PREFIX:-}
@@ -44,6 +45,7 @@ echo "MTARE Planner Robot1-Only Simulation"
 echo "============================================"
 echo "Mode: robot_1 in a 2-robot configuration"
 echo "Unity mode: $UNITY_MODE"
+echo "Test ID: $TEST_ID"
 echo ""
 
 echo "Cleaning up stale ROS/Unity processes..."
@@ -76,7 +78,7 @@ LAUNCH_ARGS=(
     ros_tcp_port:=10001
     coordination:=true
     kAutoStart:=true
-    test_id:=0002
+    test_id:="$TEST_ID"
     robot_types:=wheeled,wheeled
     vehicleX:=0.0
     vehicleY:=0.0
@@ -106,6 +108,7 @@ echo "============================================"
 echo "Active robot: /robot_1"
 echo "Unity TCP target on host: 10001"
 echo "Robot_0 is intentionally not started."
+echo "Coordination mode follows test_id prefix (0 full comms, 1 relay, 2/3/5/6 rendezvous, 4 no comms)."
 echo ""
 echo "Close RViz or press Ctrl+C to stop."
 

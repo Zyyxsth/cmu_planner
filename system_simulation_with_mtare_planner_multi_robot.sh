@@ -14,6 +14,7 @@ export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 
 ROBOT_NUM=${1:-2}
 UNITY_MODE=${2:-docker}
+TEST_ID=${3:-${TEST_ID:-0002}}
 DOCKER_IMAGE=${DOCKER_IMAGE:-mtare-planner:latest}
 RVIZ_CONFIG=${RVIZ_CONFIG:-src/mtare_planner/tare_planner/rviz/tare_planner_multi_robot.rviz}
 
@@ -46,6 +47,7 @@ echo "Multi-Robot Simulation with MTARE Planner"
 echo "============================================"
 echo "Robot number: $ROBOT_NUM"
 echo "Unity mode: $UNITY_MODE"
+echo "Test ID: $TEST_ID"
 echo ""
 
 echo "Cleaning up stale ROS/Unity processes..."
@@ -72,6 +74,7 @@ sleep 3
 echo "Starting ROS2 multi-robot stack..."
 ros2 launch vehicle_simulator system_simulation_with_mtare_planner_multi_robot.launch.py \
     robot_num:="$ROBOT_NUM" \
+    test_id:="$TEST_ID" \
     launch_joy:=false \
     launch_visualization:=true &
 LAUNCH_PID=$!
@@ -92,6 +95,15 @@ for ((i=0; i<ROBOT_NUM; i++)); do
     echo "  ROS namespace: /robot_$i"
     echo "  Unity TCP target on host: $((10000 + i))"
 done
+echo ""
+echo "Coordination mode by test_id prefix:"
+echo "  0xxx: full comms"
+echo "  1xxx: relay comms"
+echo "  2xxx: rendezvous tree"
+echo "  3xxx: rendezvous middle"
+echo "  4xxx: no comms"
+echo "  5xxx: nearest rendezvous"
+echo "  6xxx: farthest rendezvous"
 echo ""
 echo "Close RViz or press Ctrl+C to stop."
 

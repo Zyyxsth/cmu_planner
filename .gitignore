@@ -1,8 +1,10 @@
 build
+build_mtare
 
 devel
 
 install
+install_mtare
 
 log/*
 log_mtare
