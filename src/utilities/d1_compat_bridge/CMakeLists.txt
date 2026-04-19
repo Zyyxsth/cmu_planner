@@ -11,6 +11,7 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(motion_msgs REQUIRED)
@@ -24,6 +25,7 @@ ament_target_dependencies(
   geometry_msgs
   sensor_msgs
   std_msgs
+  diagnostic_msgs
   tf2
   tf2_geometry_msgs
   motion_msgs
@@ -36,7 +38,7 @@ install(TARGETS
 )
 
 install(
-  DIRECTORY launch
+  DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 

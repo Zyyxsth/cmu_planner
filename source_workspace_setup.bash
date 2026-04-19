@@ -4,7 +4,7 @@
 # `set -u` enabled. The generated setup scripts are not nounset-safe.
 
 _codex_source_workspace_setup() {
-  local script_dir restore_nounset rc
+  local script_dir restore_nounset rc d1_setup setup_stderr
   script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
   restore_nounset=0
   case $- in
@@ -27,8 +27,21 @@ _codex_source_workspace_setup() {
   : "${AMENT_ENVIRONMENT_HOOKS:=}"
   : "${CMAKE_PREFIX_PATH:=}"
 
-  . "$script_dir/install/setup.bash"
+  setup_stderr="$(mktemp)"
+  . "$script_dir/install/setup.bash" 2>"$setup_stderr"
   rc=$?
+  if [ -s "$setup_stderr" ]; then
+    grep -Fv \
+      "$script_dir/install/arise_slam_mid360/share/arise_slam_mid360/local_setup.bash" \
+      "$setup_stderr" >&2 || true
+  fi
+  rm -f "$setup_stderr"
+
+  d1_setup="${D1_ROS2_SETUP:-/opt/d1_ros2/local_setup.bash}"
+  if [ "$rc" -eq 0 ] && [ "${SOURCE_D1_ROS2_SETUP:-1}" != "0" ] && [ -f "$d1_setup" ]; then
+    . "$d1_setup"
+    rc=$?
+  fi
 
   if [ "$restore_nounset" -eq 1 ]; then
     set -u

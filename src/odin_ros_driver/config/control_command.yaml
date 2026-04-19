@@ -11,11 +11,11 @@ register_keys:
   streamctrl: 1           # 0: off; 1: on
 
   # original rgb data in jpeg format from device
-  sendrgbcompressed: 1    # 0: off; 1: on
+  sendrgbcompressed: 0    # 0: off; 1: on
 
   # RGB data, decoded from original jpeg data from device, bgr8 format
   # Processed on host device
-  sendrgb: 1              # 0: off; 1: on
+  sendrgb: 0              # 0: off; 1: on
 
   # undistort rgb image processed from decoded rgb data.
   # depends on sendrgb. related camera parameters can be found in ws/src/odin_ros_driver/config/calib.yaml
@@ -46,7 +46,7 @@ register_keys:
 
   # processed with raw point cloud, rgb image, and calib.yaml from device
   # Processed on host device
-  sendcloudrender: 1      # 0: off; 1: on
+  sendcloudrender: 0      # 0: off; 1: on
 
   # depth completion demo, high computing resource usage. 
   # for more information please refer to the readme file.
@@ -63,7 +63,9 @@ register_keys:
   recorddata: 0           # 0: off; 1: on
 
   # Save device runtime status info to ws/src/odin_ros_driver/log/Driver_{drvier_start_time}/Conn_{device_connection_time}/dev_status.csv
-  devstatuslog: 1         # 0: off; 1: on.
+  devstatuslog: 0         # 0: off; 1: on.
+
+  showfps: 0             # 0: off; 1: on
 
   save_log: 0 # 0: off; 1: on; 
 

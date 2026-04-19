@@ -1,3 +1,122 @@
+# CMU Planner Fork for D1H + ODIN
+
+This fork is the working repository for the current **D1H + ODIN** real-robot setup. The validated real-robot chain in this repository is no longer the original Diablo-only stack from upstream. The current arrangement is:
+
+- **Vendor low-level control** stays in `/opt/d1_ros2`
+- **ODIN sensing and bridge** run from this repository
+- **Route / exploration planning** run from this repository
+- **Waypoint following** runs from this repository
+- **Final motion output** is sent to the vendor ROS2 command topic `/d15020108/command/cmd_twist`
+
+In other words, this repo now acts as the **upper autonomy stack** for D1H, while the vendor bringup remains the real low-level controller.
+
+## Current Validated Real-Robot Workflow
+
+### What is in charge
+
+- `/opt/d1_ros2`
+  - vendor D1H control stack
+  - `d1_bringup.service`
+  - controller manager / robot state publisher / vendor teleop
+- `/home/robot/cmu_planner`
+  - ODIN driver and autonomy bridge
+  - FAR route planner / exploration planner
+  - local planner / path follower
+  - D1 compatibility bridge for legacy topics
+
+### Current real-robot data and command flow
+
+```text
+ODIN -> odin_ros_driver -> odin_autonomy_bridge -> /state_estimation + /registered_scan
+                                  |
+                                  v
+                           far_planner -> /way_point
+                                  |
+                                  v
+                    localPlanner + pathFollower -> /d15020108/command/cmd_twist
+                                  |
+                                  v
+                      vendor D1H controller in /opt/d1_ros2
+```
+
+### Important behavior changes already integrated in this fork
+
+- Real-robot launch starts in a **safe idle state**
+- The robot does **not** immediately enter autonomy on startup
+- Autonomy is enabled only after a real `/goal_point` is received and propagated to `/way_point`
+- ODIN point cloud bridging now provides a default `intensity` field for downstream consumers
+- The D1 route / exploration / MTARE helper scripts now clean up previous upper-stack processes before launch and on exit
+- Remote RViz is supported by setting `D1_RUN_RVIZ=0` and `D1_ROS_LOCALHOST_ONLY=0`
+
+### Real-robot startup
+
+Robot-side:
+
+```bash
+cd /home/robot/cmu_planner
+source ./source_workspace_setup.bash
+
+export D1_RUN_RVIZ=0
+export D1_ROS_DOMAIN_ID=42
+export D1_ROS_LOCALHOST_ONLY=1   # set to 0 only if you want remote RViz
+
+./system_real_robot_with_route_planner_d1.sh
+```
+
+Send a navigation goal from another terminal on the robot:
+
+```bash
+source /opt/ros/humble/setup.bash
+source /opt/d1_ros2/local_setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=1
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+source /opt/d1_ros2/namespace.sh
+
+cd /home/robot/cmu_planner
+source ./source_workspace_setup.bash
+
+ros2 topic pub --once /goal_point geometry_msgs/msg/PointStamped \
+  "{header: {frame_id: map}, point: {x: 3.0, y: 0.0, z: 0.0}}"
+```
+
+### Remote RViz
+
+If you want RViz on another Ubuntu machine instead of on the robot:
+
+Robot-side:
+
+```bash
+cd /home/robot/cmu_planner
+source ./source_workspace_setup.bash
+
+export D1_RUN_RVIZ=0
+export D1_ROS_DOMAIN_ID=42
+export D1_ROS_LOCALHOST_ONLY=0
+
+./system_real_robot_with_route_planner_d1.sh
+```
+
+Remote Ubuntu:
+
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+ros2 topic list | grep -E "state_estimation|registered_scan|path|way_point"
+rviz2 -d /path/to/cmu_planner/src/route_planner/far_planner/rviz/default.rviz
+```
+
+### More detailed notes
+
+For the current D1H + ODIN setup notes, command conventions, and remote RViz details, see:
+
+- [docs/D1H_ODIN_NAV_FLOW.md](docs/D1H_ODIN_NAV_FLOW.md)
+
+---
+
 The repository contains the full autonomy stack for a system setup based on the [Direct Drive Tech's Diablo platform](https://shop.directdrive.com/products/diablo-world-s-first-direct-drive-self-balancing-wheeled-leg-robot). Sensors installed on the platform include a [Livox Mid-360 lidar](https://www.livoxtech.com/mid-360) and a [Ricoh Theta Z1 camera](https://us.ricoh-imaging.com/product/theta-z1), where the lidar is used by the autonomy stack. The autonomy stack contains a SLAM module, a route planner, an exploration planner, and a based autonomy system, where the base autonomy system further includes fundamental navigation modules for terrain traversability analysts, collision avoidance, and waypoint following. The system overall is capable of taking a goal point and navigating Diablo autonomously to the goal point as well as exploring an environment and building a map along the way. Alternatively, the system allows users to use a joystick controller to guide the navigation while the system itself is in charge of collision avoidance. We provide a simulation setup together with the real robot setup for users to take advantage of the system in various use cases. A tutorial about setting up the software and hardware is also provided to make it easier for users to replicate the system.
 
 <p align="center">

@@ -318,6 +318,15 @@ void FARMaster::PlanningCallBack() {
       }
       goal_waypoint_stamped_.point = FARUtil::Point3DToGeoMsgPoint(waypoint);
       goal_pub_->publish(goal_waypoint_stamped_);
+      RCLCPP_INFO(
+          nh_->get_logger(),
+          "FARMaster published waypoint: (%.3f, %.3f, %.3f), reach_goal=%s planning_fail=%s current_free_nav=%s",
+          waypoint.x,
+          waypoint.y,
+          waypoint.z,
+          is_reach_goal ? "true" : "false",
+          is_planning_fails ? "true" : "false",
+          is_current_free_nav ? "true" : "false");
       is_planner_running_ = true;
       planner_viz_.VizPoint3D(waypoint, "waypoint", VizColor::MAGNA, 1.5);
       planner_viz_.VizPoint3D(current_free_goal, "free_goal", VizColor::GREEN, 1.5);
@@ -330,6 +339,12 @@ void FARMaster::PlanningCallBack() {
       if (is_planning_fails) { // stops the robot
         goal_waypoint_stamped_.point = FARUtil::Point3DToGeoMsgPoint(robot_pos_);
         goal_pub_->publish(goal_waypoint_stamped_);
+        RCLCPP_WARN(
+            nh_->get_logger(),
+            "FARMaster planning failed, publishing stop waypoint at robot position: (%.3f, %.3f, %.3f)",
+            robot_pos_.x,
+            robot_pos_.y,
+            robot_pos_.z);
       }
     }
     if (!FARUtil::IsDebug) printf("\033[2K");
@@ -812,6 +827,16 @@ void FARMaster::WaypointCallBack(const geometry_msgs::msg::PointStamped& route_g
     if (FARUtil::IsDebug) RCLCPP_WARN_ONCE(nh_->get_logger(), "FARMaster: waypoint published is not on world frame!");
     FARUtil::TransformPoint3DFrame(goal_frame, master_params_.world_frame, tf_buffer_, goal_p); 
   }
+  RCLCPP_INFO(
+      nh_->get_logger(),
+      "FARMaster received goal: frame=%s point=(%.3f, %.3f, %.3f) -> world=(%.3f, %.3f, %.3f)",
+      goal_frame.c_str(),
+      route_goal.point.x,
+      route_goal.point.y,
+      route_goal.point.z,
+      goal_p.x,
+      goal_p.y,
+      goal_p.z);
   graph_planner_.UpdateGoal(goal_p);
   FARUtil::Timer.start_time("Overall_executing", true);
   // visualize original goal

@@ -15,6 +15,7 @@
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <std_msgs/msg/int8.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <sensor_msgs/msg/imu.h>
 
@@ -70,7 +71,10 @@ double stopTime = 5.0;
 bool noRotAtStop = false;
 bool noRotAtGoal = true;
 bool manualMode = false;
+bool ignoreJoyManualSwitch = false;
 bool autonomyMode = false;
+bool autonomyOnWaypoint = false;
+bool ignoreJoyAutonomySwitch = false;
 double autonomySpeed = 1.0;
 double joyToSpeedDelay = 2.0;
 
@@ -122,6 +126,14 @@ float pitchMaxRate = 0.5;
 nav_msgs::msg::Path path;
 rclcpp::Node::SharedPtr nh;
 
+void refreshAutonomySpeed()
+{
+  joySpeed = autonomySpeed / maxSpeed;
+
+  if (joySpeed < 0) joySpeed = 0;
+  else if (joySpeed > 1.0) joySpeed = 1.0;
+}
+
 void odomHandler(const nav_msgs::msg::Odometry::ConstSharedPtr odomIn)
 {
   odomTime = rclcpp::Time(odomIn->header.stamp).seconds();
@@ -166,6 +178,23 @@ void pathHandler(const nav_msgs::msg::Path::ConstSharedPtr pathIn)
   pathInit = true;
 }
 
+void waypointHandler(const geometry_msgs::msg::PointStamped::ConstSharedPtr waypoint)
+{
+  if (!autonomyOnWaypoint) return;
+
+  autonomyMode = true;
+  manualMode = false;
+  refreshAutonomySpeed();
+
+  RCLCPP_INFO(
+      nh->get_logger(),
+      "pathFollower received waypoint: frame=%s point=(%.3f, %.3f, %.3f), autonomy=true",
+      waypoint->header.frame_id.c_str(),
+      waypoint->point.x,
+      waypoint->point.y,
+      waypoint->point.z);
+}
+
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 {
   joyTime = nh->now().seconds(); 
@@ -184,16 +213,20 @@ void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
   joyManualFwd = joy->axes[4];
   joyManualYaw = joy->axes[3];
 
-  if (joy->axes[2] > -0.1) {
-    autonomyMode = false;
-  } else {
-    autonomyMode = true;
+  if (!ignoreJoyAutonomySwitch) {
+    if (joy->axes[2] > -0.1) {
+      autonomyMode = false;
+    } else {
+      autonomyMode = true;
+    }
   }
 
-  if (joy->axes[5] > -0.1) {
-    manualMode = false;
-  } else {
-    manualMode = true;
+  if (!ignoreJoyManualSwitch) {
+    if (joy->axes[5] > -0.1) {
+      manualMode = false;
+    } else {
+      manualMode = true;
+    }
   }
 }
 
@@ -248,6 +281,7 @@ int main(int argc, char** argv)
   std::string cmdVelTopic = "/cmd_vel";
   std::string mapClearingTopic = "/map_clearing";
   std::string cloudClearingTopic = "/cloud_clearing";
+  std::string waypointTopic = "/way_point";
   std::string vehicleFrame = "vehicle";
 
   nh->declare_parameter<double>("sensorOffsetX", sensorOffsetX);
@@ -276,6 +310,9 @@ int main(int argc, char** argv)
   nh->declare_parameter<bool>("noRotAtStop", noRotAtStop);
   nh->declare_parameter<bool>("noRotAtGoal", noRotAtGoal);
   nh->declare_parameter<bool>("autonomyMode", autonomyMode);
+  nh->declare_parameter<bool>("autonomyOnWaypoint", autonomyOnWaypoint);
+  nh->declare_parameter<bool>("ignoreJoyAutonomySwitch", ignoreJoyAutonomySwitch);
+  nh->declare_parameter<bool>("ignoreJoyManualSwitch", ignoreJoyManualSwitch);
   nh->declare_parameter<double>("autonomySpeed", autonomySpeed);
   nh->declare_parameter<double>("joyToSpeedDelay", joyToSpeedDelay);
   nh->declare_parameter<std::string>("stateEstimationTopic",
@@ -288,6 +325,7 @@ int main(int argc, char** argv)
   nh->declare_parameter<std::string>("mapClearingTopic", mapClearingTopic);
   nh->declare_parameter<std::string>("cloudClearingTopic",
                                      cloudClearingTopic);
+  nh->declare_parameter<std::string>("waypointTopic", waypointTopic);
   nh->declare_parameter<std::string>("vehicleFrame", vehicleFrame);
 
   nh->get_parameter("sensorOffsetX", sensorOffsetX);
@@ -316,6 +354,9 @@ int main(int argc, char** argv)
   nh->get_parameter("noRotAtStop", noRotAtStop);
   nh->get_parameter("noRotAtGoal", noRotAtGoal);
   nh->get_parameter("autonomyMode", autonomyMode);
+  nh->get_parameter("autonomyOnWaypoint", autonomyOnWaypoint);
+  nh->get_parameter("ignoreJoyAutonomySwitch", ignoreJoyAutonomySwitch);
+  nh->get_parameter("ignoreJoyManualSwitch", ignoreJoyManualSwitch);
   nh->get_parameter("autonomySpeed", autonomySpeed);
   nh->get_parameter("joyToSpeedDelay", joyToSpeedDelay);
   nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
@@ -326,6 +367,7 @@ int main(int argc, char** argv)
   nh->get_parameter("cmdVelTopic", cmdVelTopic);
   nh->get_parameter("mapClearingTopic", mapClearingTopic);
   nh->get_parameter("cloudClearingTopic", cloudClearingTopic);
+  nh->get_parameter("waypointTopic", waypointTopic);
   nh->get_parameter("vehicleFrame", vehicleFrame);
 
   auto subOdom = nh->create_subscription<nav_msgs::msg::Odometry>(
@@ -333,6 +375,9 @@ int main(int argc, char** argv)
 
   auto subPath =
       nh->create_subscription<nav_msgs::msg::Path>(pathTopic, 5, pathHandler);
+
+  auto subWaypoint = nh->create_subscription<geometry_msgs::msg::PointStamped>(
+      waypointTopic, 5, waypointHandler);
 
   auto subJoystick = nh->create_subscription<sensor_msgs::msg::Joy>("/joy", 5, joystickHandler);
 
@@ -383,13 +428,11 @@ int main(int argc, char** argv)
   ctrl_msg.mode.split_mode = false;
 
   if (autonomyMode) {
-    joySpeed = autonomySpeed / maxSpeed;
-
-    if (joySpeed < 0) joySpeed = 0;
-    else if (joySpeed > 1.0) joySpeed = 1.0;
+    refreshAutonomySpeed();
   }
 
   int ctrlInitFrameCount = 150;
+  double lastStatusLogTime = -1.0;
   rclcpp::Rate rate(100);
   bool status = rclcpp::ok();
   while (status) {
@@ -495,6 +538,22 @@ int main(int argc, char** argv)
         if (manualMode) {
           cmd_vel.twist.linear.x = maxSpeed * joyManualFwd;
           cmd_vel.twist.angular.z = maxYawRate * PI / 180.0 * joyManualYaw;
+        }
+
+        const double now_sec = nh->now().seconds();
+        if (lastStatusLogTime < 0.0 || now_sec - lastStatusLogTime >= 1.0) {
+          RCLCPP_INFO(
+              nh->get_logger(),
+              "pathFollower status: autonomy=%s manual=%s joy_speed=%.3f path_size=%d dis=%.3f dir_diff=%.3f cmd_vx=%.3f cmd_wz=%.3f",
+              autonomyMode ? "true" : "false",
+              manualMode ? "true" : "false",
+              joySpeed,
+              pathSize,
+              dis,
+              dirDiff,
+              cmd_vel.twist.linear.x,
+              cmd_vel.twist.angular.z);
+          lastStatusLogTime = now_sec;
         }
         
         pubSpeed->publish(cmd_vel);

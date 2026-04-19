@@ -34,7 +34,45 @@ Visualization Manager:
       Length: 1.5
       Name: Vehicle
       Radius: 0.20000000298023224
-      Reference Frame: vehicle
+      Reference Frame: odin1_base_link
+      Value: true
+    - Angle Tolerance: 0.10000000149011612
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.30000001192092896
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: true
+      Keep: 200
+      Name: StateEstimation
+      Position Tolerance: 0.10000000149011612
+      Shape:
+        Alpha: 1
+        Axes Length: 0.6000000238418579
+        Axes Radius: 0.05000000074505806
+        Color: 255; 25; 0
+        Head Length: 0.30000001192092896
+        Head Radius: 0.10000000149011612
+        Shaft Length: 1
+        Shaft Radius: 0.05000000074505806
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /state_estimation
       Value: true
     - Class: rviz_default_plugins/Image
       Enabled: true

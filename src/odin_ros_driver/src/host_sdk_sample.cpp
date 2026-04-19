@@ -749,6 +749,29 @@ std::string get_package_source_directory() {
     return path.string();
 }
 
+std::filesystem::path get_package_runtime_root(const std::string& package_name) {
+    try {
+        const auto source_root = std::filesystem::path(get_package_source_directory());
+        if (std::filesystem::exists(source_root / "config")) {
+            return source_root;
+        }
+    } catch (const std::exception&) {
+        // Fall through to installed package path.
+    }
+
+    return std::filesystem::path(get_package_share_path(package_name));
+}
+
+std::filesystem::path get_package_runtime_subdir(const std::string& package_name,
+                                                 const std::string& subdir) {
+    const auto runtime_root = get_package_runtime_root(package_name);
+    const auto source_candidate = runtime_root / subdir;
+    if (std::filesystem::exists(source_candidate)) {
+        return source_candidate;
+    }
+    return std::filesystem::path(get_package_share_path(package_name)) / subdir;
+}
+
 
 std::string get_package_path(const std::string& package_name) {
     #ifdef ROS2
@@ -1091,25 +1114,10 @@ static void lidar_device_callback(const lidar_device_info_t* device, bool attach
             #endif
             return;
         }
-	const std::string package_name = "odin_ros_driver";
-	std::string config_dir = "";
-	#ifdef ROS2
-	    char* ros_workspace = std::getenv("COLCON_PREFIX_PATH");
-	    if (ros_workspace) {
-		std::string workspace_path(ros_workspace);
-		size_t pos = workspace_path.find("/install");
-		if (pos != std::string::npos) {
-		    config_dir = workspace_path.substr(0, pos) + "/src/odin_ros_driver/config";
-		} else {
-		    config_dir = ament_index_cpp::get_package_share_directory(package_name) + "/config";
-		}
-	    } else {
-		config_dir = ament_index_cpp::get_package_share_directory(package_name) + "/config";
-	    }
-	#else
-	    config_dir = ros::package::getPath(package_name) + "/config";
-	#endif
-   		 std::cout << "config_dir"<< config_dir <<std::endl;
+        const std::string package_name = "odin_ros_driver";
+        const auto config_dir_path = get_package_runtime_subdir(package_name, "config");
+        const std::string config_dir = config_dir_path.string();
+        std::cout << "config_dir" << config_dir << std::endl;
         #ifdef ROS2
             RCLCPP_INFO(rclcpp::get_logger("device_cb"), "Calibration files will be saved to: %s", config_dir.c_str());
         #else
@@ -1608,7 +1616,7 @@ int main(int argc, char *argv[])
 
     try {
     #ifdef ROS2
-        std::string package_path = get_package_source_directory();
+        std::string package_path = get_package_runtime_root("odin_ros_driver").string();
         std::cout << "package_path: " << package_path << std::endl;
     #else
     	std::string package_path = get_package_share_path("odin_ros_driver");
@@ -1685,33 +1693,12 @@ int main(int argc, char *argv[])
         lidar_log_set_level(LIDAR_LOG_INFO);
 
         const std::string package_name = "odin_ros_driver";
-        std::string data_dir = "";
-        std::string log_dir = "";
-        std::string map_dir = "";
-        #ifdef ROS2
-            char* ros_workspace = std::getenv("COLCON_PREFIX_PATH");
-            if (ros_workspace) {
-                std::string workspace_path(ros_workspace);
-                size_t pos = workspace_path.find("/install");
-                if (pos != std::string::npos) {
-                    data_dir = workspace_path.substr(0, pos) + "/src/odin_ros_driver/recorddata";
-                    log_dir = workspace_path.substr(0, pos) + "/src/odin_ros_driver/log";
-                    map_dir = workspace_path.substr(0, pos) + "/src/odin_ros_driver/map";
-                } else {
-                    data_dir = ament_index_cpp::get_package_share_directory(package_name) + "/recorddata";
-                    log_dir = ament_index_cpp::get_package_share_directory(package_name) + "/log";
-                    map_dir = ament_index_cpp::get_package_share_directory(package_name) + "/map";
-                }
-            } else {
-                data_dir = ament_index_cpp::get_package_share_directory(package_name) + "/recorddata";
-                log_dir = ament_index_cpp::get_package_share_directory(package_name) + "/log";
-                map_dir = ament_index_cpp::get_package_share_directory(package_name) + "/map";
-            }
-        #else
-            data_dir = ros::package::getPath(package_name) + "/recorddata";
-            log_dir = ros::package::getPath(package_name) + "/log";
-            map_dir = ros::package::getPath(package_name) + "/map";
-        #endif
+        const std::string data_dir =
+            get_package_runtime_subdir(package_name, "recorddata").string();
+        const std::string log_dir =
+            get_package_runtime_subdir(package_name, "log").string();
+        const std::string map_dir =
+            get_package_runtime_subdir(package_name, "map").string();
 
         if (g_record_data) {
             g_ros_object->initialize_data_logger(data_dir);

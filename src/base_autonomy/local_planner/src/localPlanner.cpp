@@ -79,6 +79,8 @@ double pathRangeStep = 0.5;
 bool pathRangeBySpeed = true;
 bool pathCropByGoal = true;
 bool autonomyMode = false;
+bool autonomyOnWaypoint = false;
+bool ignoreJoyAutonomySwitch = false;
 double autonomySpeed = 1.0;
 double joyToSpeedDelay = 2.0;
 double joyToCheckObstacleDelay = 5.0;
@@ -239,10 +241,12 @@ void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 
   if (joy->axes[4] < 0 && !twoWayDrive) joySpeed = 0;
 
-  if (joy->axes[2] > -0.1) {
-    autonomyMode = false;
-  } else {
-    autonomyMode = true;
+  if (!ignoreJoyAutonomySwitch) {
+    if (joy->axes[2] > -0.1) {
+      autonomyMode = false;
+    } else {
+      autonomyMode = true;
+    }
   }
 
   if (joy->axes[5] > -0.1) {
@@ -256,6 +260,20 @@ void goalHandler(const geometry_msgs::msg::PointStamped::ConstSharedPtr goal)
 {
   goalX = goal->point.x;
   goalY = goal->point.y;
+  if (autonomyOnWaypoint) {
+    autonomyMode = true;
+    joySpeed = autonomySpeed / maxSpeed;
+    if (joySpeed < 0) joySpeed = 0;
+    else if (joySpeed > 1.0) joySpeed = 1.0;
+  }
+  RCLCPP_INFO(
+      nh->get_logger(),
+      "localPlanner received waypoint: frame=%s point=(%.3f, %.3f, %.3f), autonomy=%s",
+      goal->header.frame_id.c_str(),
+      goal->point.x,
+      goal->point.y,
+      goal->point.z,
+      autonomyMode ? "true" : "false");
 }
 
 void speedHandler(const std_msgs::msg::Float32::ConstSharedPtr speed)
@@ -553,6 +571,8 @@ int main(int argc, char** argv)
   nh->declare_parameter<bool>("pathRangeBySpeed", pathRangeBySpeed);
   nh->declare_parameter<bool>("pathCropByGoal", pathCropByGoal);
   nh->declare_parameter<bool>("autonomyMode", autonomyMode);
+  nh->declare_parameter<bool>("autonomyOnWaypoint", autonomyOnWaypoint);
+  nh->declare_parameter<bool>("ignoreJoyAutonomySwitch", ignoreJoyAutonomySwitch);
   nh->declare_parameter<double>("autonomySpeed", autonomySpeed);
   nh->declare_parameter<double>("joyToSpeedDelay", joyToSpeedDelay);
   nh->declare_parameter<double>("joyToCheckObstacleDelay", joyToCheckObstacleDelay);
@@ -609,6 +629,8 @@ int main(int argc, char** argv)
   nh->get_parameter("pathRangeBySpeed", pathRangeBySpeed);
   nh->get_parameter("pathCropByGoal", pathCropByGoal);
   nh->get_parameter("autonomyMode", autonomyMode);
+  nh->get_parameter("autonomyOnWaypoint", autonomyOnWaypoint);
+  nh->get_parameter("ignoreJoyAutonomySwitch", ignoreJoyAutonomySwitch);
   nh->get_parameter("autonomySpeed", autonomySpeed);
   nh->get_parameter("joyToSpeedDelay", joyToSpeedDelay);
   nh->get_parameter("joyToCheckObstacleDelay", joyToCheckObstacleDelay);
@@ -1054,6 +1076,18 @@ int main(int argc, char** argv)
         path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
         path.header.frame_id = vehicleFrame;
         pubPath->publish(path);
+        RCLCPP_WARN_THROTTLE(
+            nh->get_logger(),
+            *nh->get_clock(),
+            2000,
+            "localPlanner failed to find path. odom=(%.3f, %.3f) goal=(%.3f, %.3f) terrainCloud=%zu addedObs=%zu boundary=%zu",
+            vehicleX,
+            vehicleY,
+            goalX,
+            goalY,
+            plannerCloudCrop->size(),
+            addedObstacles->size(),
+            boundaryCloud->size());
 
         #if PLOTPATHSET == 1
         freePaths->clear();

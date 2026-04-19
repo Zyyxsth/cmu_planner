@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource, FrontendLaunchDescriptionSource
 from launch_ros.actions import Node
@@ -13,7 +13,7 @@ def generate_launch_description():
   robot_namespace_default = os.environ.get('ROBOT_NS', 'd15020108').strip('/')
   topic_prefix = f'/{robot_namespace_default}' if robot_namespace_default else ''
 
-  exploration_planner_config = LaunchConfiguration('exploration_planner_config')
+  route_planner_config = LaunchConfiguration('route_planner_config')
   world_name = LaunchConfiguration('world_name')
   sensorOffsetX = LaunchConfiguration('sensorOffsetX')
   sensorOffsetY = LaunchConfiguration('sensorOffsetY')
@@ -41,10 +41,11 @@ def generate_launch_description():
   d1_ros_localhost_only = LaunchConfiguration('d1_ros_localhost_only')
   autonomy_mode = LaunchConfiguration('autonomy_mode')
   autonomy_speed = LaunchConfiguration('autonomy_speed')
+  startup_delay_sec = LaunchConfiguration('startup_delay_sec')
 
   ld = LaunchDescription()
   for name, default in [
-      ('exploration_planner_config', 'indoor'),
+      ('route_planner_config', 'indoor'),
       ('world_name', 'real_world'),
       ('sensorOffsetX', '0.0'),
       ('sensorOffsetY', '0.0'),
@@ -73,6 +74,7 @@ def generate_launch_description():
       ('d1_ros_localhost_only', '1'),
       ('autonomy_mode', 'false'),
       ('autonomy_speed', '0.3'),
+      ('startup_delay_sec', '8.0'),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
 
@@ -89,41 +91,6 @@ def generate_launch_description():
     }.items(),
     condition=IfCondition(start_d1_traditional_hw)))
 
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('local_planner'), 'launch', 'local_planner.launch')),
-    launch_arguments={
-      'sensorOffsetX': sensorOffsetX,
-      'sensorOffsetY': sensorOffsetY,
-      'cameraOffsetZ': cameraOffsetZ,
-      'goalX': vehicleX,
-      'goalY': vehicleY,
-      'autonomyMode': autonomy_mode,
-      'autonomyOnWaypoint': 'true',
-      'ignoreJoyAutonomySwitch': 'true',
-      'ignoreJoyManualSwitch': 'true',
-      'autonomySpeed': autonomy_speed,
-      'cmdVelTopic': d1_cmd_topic,
-    }.items()))
-
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('terrain_analysis'), 'launch', 'terrain_analysis.launch'))))
-
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('terrain_analysis_ext'), 'launch', 'terrain_analysis_ext.launch')),
-    launch_arguments={'checkTerrainConn': checkTerrainConn}.items()))
-
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('sensor_scan_generation'), 'launch', 'sensor_scan_generation.launch'))))
-
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('visualization_tools'), 'launch', 'visualization_tools.launch')),
-    launch_arguments={'world_name': world_name}.items()))
-
   ld.add_action(Node(
     package='tf2_ros',
     executable='static_transform_publisher',
@@ -132,22 +99,12 @@ def generate_launch_description():
     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
     condition=IfCondition(start_odin_driver)))
 
-  ld.add_action(IncludeLaunchDescription(
-    FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('receive_theta'), 'launch', 'receive_theta.launch')),
-    launch_arguments={'showImage': showImage}.items(),
-    condition=IfCondition(start_receive_theta)))
-
   ld.add_action(Node(
     package='joy',
     executable='joy_node',
     name='ps3_joy',
     output='screen',
     parameters=[{'dev': '/dev/input/js0', 'deadzone': 0.12, 'autorepeat_rate': 0.0}]))
-
-  ld.add_action(IncludeLaunchDescription(
-    PythonLaunchDescriptionSource([get_package_share_directory('tare_planner'), '/explore_world.launch']),
-    launch_arguments={'scenario': exploration_planner_config}.items()))
 
   ld.add_action(Node(
     package='odin_ros_driver',
@@ -176,5 +133,51 @@ def generate_launch_description():
       'standdown_key': d1_standdown_key,
       'publish_twist_from_motion_cmd': 'false',
     }.items()))
+
+  delayed_actions = [
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('local_planner'), 'launch', 'local_planner.launch')),
+      launch_arguments={
+        'sensorOffsetX': sensorOffsetX,
+        'sensorOffsetY': sensorOffsetY,
+        'cameraOffsetZ': cameraOffsetZ,
+        'goalX': vehicleX,
+        'goalY': vehicleY,
+        'autonomyMode': autonomy_mode,
+        'autonomyOnWaypoint': 'true',
+        'ignoreJoyAutonomySwitch': 'true',
+        'ignoreJoyManualSwitch': 'true',
+        'autonomySpeed': autonomy_speed,
+        'cmdVelTopic': d1_cmd_topic,
+      }.items()),
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('terrain_analysis'), 'launch', 'terrain_analysis.launch'))),
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('terrain_analysis_ext'), 'launch', 'terrain_analysis_ext.launch')),
+      launch_arguments={'checkTerrainConn': checkTerrainConn}.items()),
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('sensor_scan_generation'), 'launch', 'sensor_scan_generation.launch'))),
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('visualization_tools'), 'launch', 'visualization_tools.launch')),
+      launch_arguments={'world_name': world_name}.items()),
+    IncludeLaunchDescription(
+      FrontendLaunchDescriptionSource(os.path.join(
+        get_package_share_directory('receive_theta'), 'launch', 'receive_theta.launch')),
+      launch_arguments={'showImage': showImage}.items(),
+      condition=IfCondition(start_receive_theta)),
+    IncludeLaunchDescription(
+      PythonLaunchDescriptionSource([get_package_share_directory('far_planner'),
+                                     '/launch/far_planner.launch']),
+      launch_arguments={'config': route_planner_config}.items()),
+  ]
+
+  ld.add_action(TimerAction(
+    period=startup_delay_sec,
+    actions=delayed_actions))
 
   return ld

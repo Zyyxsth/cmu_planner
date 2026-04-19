@@ -2,13 +2,17 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource, FrontendLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
+  robot_namespace_default = os.environ.get('ROBOT_NS', 'd15020108').strip('/')
+  topic_prefix = f'/{robot_namespace_default}' if robot_namespace_default else ''
+
   mtare_planner_config = LaunchConfiguration('mtare_planner_config')
   world_name = LaunchConfiguration('world_name')
   sensorOffsetX = LaunchConfiguration('sensorOffsetX')
@@ -17,9 +21,26 @@ def generate_launch_description():
   vehicleX = LaunchConfiguration('vehicleX')
   vehicleY = LaunchConfiguration('vehicleY')
   checkTerrainConn = LaunchConfiguration('checkTerrainConn')
-  d1_odom_topic = LaunchConfiguration('d1_odom_topic')
+  d1_robot = LaunchConfiguration('d1_robot')
+  d1_controller_name = LaunchConfiguration('d1_controller_name')
+  d1_can_interface = LaunchConfiguration('d1_can_interface')
+  start_d1_traditional_hw = LaunchConfiguration('start_d1_traditional_hw')
+  start_odin_driver = LaunchConfiguration('start_odin_driver')
+  start_receive_theta = LaunchConfiguration('start_receive_theta')
+  showImage = LaunchConfiguration('showImage')
+  odin_config_file = LaunchConfiguration('odin_config_file')
+  d1_joint_states_topic = LaunchConfiguration('d1_joint_states_topic')
   d1_imu_topic = LaunchConfiguration('d1_imu_topic')
+  d1_fsm_topic = LaunchConfiguration('d1_fsm_topic')
+  d1_motors_status_topic = LaunchConfiguration('d1_motors_status_topic')
   d1_cmd_topic = LaunchConfiguration('d1_cmd_topic')
+  d1_key_topic = LaunchConfiguration('d1_key_topic')
+  d1_standup_key = LaunchConfiguration('d1_standup_key')
+  d1_standdown_key = LaunchConfiguration('d1_standdown_key')
+  d1_ros_domain_id = LaunchConfiguration('d1_ros_domain_id')
+  d1_ros_localhost_only = LaunchConfiguration('d1_ros_localhost_only')
+  autonomy_mode = LaunchConfiguration('autonomy_mode')
+  autonomy_speed = LaunchConfiguration('autonomy_speed')
 
   ld = LaunchDescription()
   for name, default in [
@@ -31,11 +52,42 @@ def generate_launch_description():
       ('vehicleX', '0.0'),
       ('vehicleY', '0.0'),
       ('checkTerrainConn', 'true'),
-      ('d1_odom_topic', '/d1/odom'),
-      ('d1_imu_topic', '/d1/imu'),
-      ('d1_cmd_topic', '/d1/cmd_vel'),
+      ('d1_robot', 'd1'),
+      ('d1_controller_name', 'd1_rl_controller'),
+      ('d1_can_interface', 'can0'),
+      ('start_d1_traditional_hw', 'false'),
+      ('start_odin_driver', 'true'),
+      ('start_receive_theta', 'false'),
+      ('showImage', 'false'),
+      ('odin_config_file', os.path.join(
+          get_package_share_directory('odin_ros_driver'), 'config', 'control_command.yaml')),
+      ('d1_joint_states_topic', f'{topic_prefix}/joint_states'),
+      ('d1_imu_topic', f'{topic_prefix}/imu_sensor_broadcaster/imu'),
+      ('d1_fsm_topic', f'{topic_prefix}/rl_controller/fsm'),
+      ('d1_motors_status_topic', f'{topic_prefix}/system_status_broadcaster/motors_status'),
+      ('d1_cmd_topic', f'{topic_prefix}/command/cmd_twist'),
+      ('d1_key_topic', f'{topic_prefix}/command/cmd_key'),
+      ('d1_standup_key', 'transform_up'),
+      ('d1_standdown_key', 'transform_down'),
+      ('d1_ros_domain_id', '42'),
+      ('d1_ros_localhost_only', '1'),
+      ('autonomy_mode', 'false'),
+      ('autonomy_speed', '0.3'),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
+
+  ld.add_action(SetEnvironmentVariable('ROS_DOMAIN_ID', d1_ros_domain_id))
+  ld.add_action(SetEnvironmentVariable('ROS_LOCALHOST_ONLY', d1_ros_localhost_only))
+
+  ld.add_action(IncludeLaunchDescription(
+    PythonLaunchDescriptionSource([get_package_share_directory('d1_compat_bridge'),
+                                   '/launch/d1_traditional_hw.launch.py']),
+    launch_arguments={
+      'robot': d1_robot,
+      'controller_name': d1_controller_name,
+      'can_interface': d1_can_interface,
+    }.items(),
+    condition=IfCondition(start_d1_traditional_hw)))
 
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
@@ -46,6 +98,12 @@ def generate_launch_description():
       'cameraOffsetZ': cameraOffsetZ,
       'goalX': vehicleX,
       'goalY': vehicleY,
+      'autonomyMode': autonomy_mode,
+      'autonomyOnWaypoint': 'true',
+      'ignoreJoyAutonomySwitch': 'true',
+      'ignoreJoyManualSwitch': 'true',
+      'autonomySpeed': autonomy_speed,
+      'cmdVelTopic': d1_cmd_topic,
     }.items()))
 
   ld.add_action(IncludeLaunchDescription(
@@ -67,6 +125,20 @@ def generate_launch_description():
     launch_arguments={'world_name': world_name}.items()))
 
   ld.add_action(Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='map_to_odom_tf',
+    output='screen',
+    arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+    condition=IfCondition(start_odin_driver)))
+
+  ld.add_action(IncludeLaunchDescription(
+    FrontendLaunchDescriptionSource(os.path.join(
+      get_package_share_directory('receive_theta'), 'launch', 'receive_theta.launch')),
+    launch_arguments={'showImage': showImage}.items(),
+    condition=IfCondition(start_receive_theta)))
+
+  ld.add_action(Node(
     package='joy',
     executable='joy_node',
     name='ps3_joy',
@@ -78,13 +150,32 @@ def generate_launch_description():
                                    '/explore_world.launch.py']),
     launch_arguments={'scenario': mtare_planner_config}.items()))
 
+  ld.add_action(Node(
+    package='odin_ros_driver',
+    executable='host_sdk_sample',
+    name='host_sdk_sample',
+    output='screen',
+    parameters=[{'config_file': odin_config_file}],
+    condition=IfCondition(start_odin_driver)
+  ))
+
+  ld.add_action(IncludeLaunchDescription(
+    PythonLaunchDescriptionSource([get_package_share_directory('odin_autonomy_bridge'),
+                                   '/launch/odin_autonomy_bridge.launch.py']),
+    condition=IfCondition(start_odin_driver)))
+
   ld.add_action(IncludeLaunchDescription(
     PythonLaunchDescriptionSource([get_package_share_directory('d1_compat_bridge'),
                                    '/launch/d1_compat_bridge.launch.py']),
     launch_arguments={
-      'input_odom_topic': d1_odom_topic,
+      'input_joint_states_topic': d1_joint_states_topic,
       'input_imu_topic': d1_imu_topic,
-      'output_twist_topic': d1_cmd_topic,
+      'input_fsm_topic': d1_fsm_topic,
+      'input_motors_status_topic': d1_motors_status_topic,
+      'output_fsm_topic': d1_key_topic,
+      'standup_key': d1_standup_key,
+      'standdown_key': d1_standdown_key,
+      'publish_twist_from_motion_cmd': 'false',
     }.items()))
 
   return ld

@@ -1,10 +1,13 @@
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "sensor_msgs/msg/point_field.hpp"
+#include "sensor_msgs/point_cloud2_iterator.hpp"
 
 class OdinAutonomyBridge : public rclcpp::Node {
  public:
@@ -57,6 +60,56 @@ class OdinAutonomyBridge : public rclcpp::Node {
   }
 
  private:
+  static bool HasField(
+      const sensor_msgs::msg::PointCloud2 & msg,
+      const std::string & field_name) {
+    for (const auto & field : msg.fields) {
+      if (field.name == field_name) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static sensor_msgs::msg::PointCloud2 AddDefaultIntensityField(
+      const sensor_msgs::msg::PointCloud2 & msg) {
+    sensor_msgs::msg::PointCloud2 out;
+    out.header = msg.header;
+    out.height = msg.height;
+    out.width = msg.width;
+    out.is_bigendian = msg.is_bigendian;
+    out.is_dense = msg.is_dense;
+
+    sensor_msgs::PointCloud2Modifier modifier(out);
+    modifier.setPointCloud2Fields(
+        4,
+        "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
+    modifier.resize(static_cast<size_t>(msg.width) * static_cast<size_t>(msg.height));
+
+    sensor_msgs::PointCloud2ConstIterator<float> in_x(msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> in_y(msg, "y");
+    sensor_msgs::PointCloud2ConstIterator<float> in_z(msg, "z");
+    sensor_msgs::PointCloud2Iterator<float> out_x(out, "x");
+    sensor_msgs::PointCloud2Iterator<float> out_y(out, "y");
+    sensor_msgs::PointCloud2Iterator<float> out_z(out, "z");
+    sensor_msgs::PointCloud2Iterator<float> out_intensity(out, "intensity");
+
+    const size_t point_count =
+        static_cast<size_t>(msg.width) * static_cast<size_t>(msg.height);
+    for (size_t i = 0; i < point_count;
+         ++i, ++in_x, ++in_y, ++in_z, ++out_x, ++out_y, ++out_z, ++out_intensity) {
+      *out_x = *in_x;
+      *out_y = *in_y;
+      *out_z = *in_z;
+      *out_intensity = 0.0f;
+    }
+
+    return out;
+  }
+
   void OdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     auto out = *msg;
     if (rewrite_frame_id_) {
@@ -69,6 +122,12 @@ class OdinAutonomyBridge : public rclcpp::Node {
     auto out = *msg;
     if (rewrite_frame_id_) {
       out.header.frame_id = world_frame_;
+    }
+    if (!HasField(out, "intensity")) {
+      out = AddDefaultIntensityField(out);
+      if (rewrite_frame_id_) {
+        out.header.frame_id = world_frame_;
+      }
     }
     cloud_pub_->publish(out);
   }

@@ -6,6 +6,9 @@
   <arg name="twoWayDrive" default="false"/>
   <arg name="maxSpeed" default="1.0"/>
   <arg name="autonomyMode" default="false"/>
+  <arg name="autonomyOnWaypoint" default="false"/>
+  <arg name="ignoreJoyAutonomySwitch" default="false"/>
+  <arg name="ignoreJoyManualSwitch" default="false"/>
   <arg name="autonomySpeed" default="1.0"/>
   <arg name="joyToSpeedDelay" default="2.0"/>
   <arg name="goalX" default="0.0"/>
@@ -61,6 +64,9 @@
     <param name="pathRangeBySpeed" value="true" />
     <param name="pathCropByGoal" value="true" />
     <param name="autonomyMode" value="$(var autonomyMode)" />
+    <param name="autonomyOnWaypoint" value="$(var autonomyOnWaypoint)" />
+    <param name="ignoreJoyAutonomySwitch" value="$(var ignoreJoyAutonomySwitch)" />
+    <param name="ignoreJoyManualSwitch" value="$(var ignoreJoyManualSwitch)" />
     <param name="autonomySpeed" value="$(var autonomySpeed)" />
     <param name="joyToSpeedDelay" value="$(var joyToSpeedDelay)" />
     <param name="joyToCheckObstacleDelay" value="5.0" />
@@ -109,6 +115,9 @@
     <param name="noRotAtStop" value="false" />
     <param name="noRotAtGoal" value="true" />
     <param name="autonomyMode" value="$(var autonomyMode)" />
+    <param name="autonomyOnWaypoint" value="$(var autonomyOnWaypoint)" />
+    <param name="ignoreJoyAutonomySwitch" value="$(var ignoreJoyAutonomySwitch)" />
+    <param name="ignoreJoyManualSwitch" value="$(var ignoreJoyManualSwitch)" />
     <param name="autonomySpeed" value="$(var autonomySpeed)" />
     <param name="joyToSpeedDelay" value="$(var joyToSpeedDelay)" />
     <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
