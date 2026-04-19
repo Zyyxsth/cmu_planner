@@ -17,6 +17,7 @@ def generate_launch_description():
         Node(
             package='odin_autonomy_bridge',
             executable='odin_autonomy_bridge_node',
+            name='odin_autonomy_bridge_odom',
             output='screen',
             parameters=[{
                 'input_odom_topic': LaunchConfiguration('input_odom_topic'),
@@ -27,6 +28,47 @@ def generate_launch_description():
                 'output_imu_topic': LaunchConfiguration('output_imu_topic'),
                 'world_frame': LaunchConfiguration('world_frame'),
                 'rewrite_frame_id': LaunchConfiguration('rewrite_frame_id'),
+                'enable_odom_bridge': True,
+                'enable_cloud_bridge': False,
+                'enable_imu_bridge': False,
+            }]
+        ),
+        Node(
+            package='odin_autonomy_bridge',
+            executable='odin_autonomy_bridge_node',
+            name='odin_autonomy_bridge_cloud',
+            output='screen',
+            parameters=[{
+                'input_odom_topic': LaunchConfiguration('input_odom_topic'),
+                'input_cloud_topic': LaunchConfiguration('input_cloud_topic'),
+                'input_imu_topic': LaunchConfiguration('input_imu_topic'),
+                'output_state_estimation_topic': LaunchConfiguration('output_state_estimation_topic'),
+                'output_registered_scan_topic': LaunchConfiguration('output_registered_scan_topic'),
+                'output_imu_topic': LaunchConfiguration('output_imu_topic'),
+                'world_frame': LaunchConfiguration('world_frame'),
+                'rewrite_frame_id': LaunchConfiguration('rewrite_frame_id'),
+                'enable_odom_bridge': False,
+                'enable_cloud_bridge': True,
+                'enable_imu_bridge': False,
+            }]
+        ),
+        Node(
+            package='odin_autonomy_bridge',
+            executable='odin_autonomy_bridge_node',
+            name='odin_autonomy_bridge_imu',
+            output='screen',
+            parameters=[{
+                'input_odom_topic': LaunchConfiguration('input_odom_topic'),
+                'input_cloud_topic': LaunchConfiguration('input_cloud_topic'),
+                'input_imu_topic': LaunchConfiguration('input_imu_topic'),
+                'output_state_estimation_topic': LaunchConfiguration('output_state_estimation_topic'),
+                'output_registered_scan_topic': LaunchConfiguration('output_registered_scan_topic'),
+                'output_imu_topic': LaunchConfiguration('output_imu_topic'),
+                'world_frame': LaunchConfiguration('world_frame'),
+                'rewrite_frame_id': LaunchConfiguration('rewrite_frame_id'),
+                'enable_odom_bridge': False,
+                'enable_cloud_bridge': False,
+                'enable_imu_bridge': True,
             }]
         )
     ])

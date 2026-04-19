@@ -12,6 +12,86 @@ In other words, this repo now acts as the **upper autonomy stack** for D1H, whil
 
 ## Current Validated Real-Robot Workflow
 
+## Weekly Update
+
+### 2026-04-19
+
+This week focused on stabilizing the **D1H + ODIN real-robot integration path**, especially the ODIN sensing bridge and the upper navigation stack behavior on hardware.
+
+- Verified the current real-robot command path:
+  - vendor low-level control remains in `/opt/d1_ros2`
+  - this repository provides ODIN sensing, autonomy bridge, FAR planner, local planner, and path follower
+  - final motion output is sent to `/d15020108/command/cmd_twist`
+- Completed repeated real-robot bringup / teardown cleanup for the upper stack and standardized the workflow around:
+  - `system_real_robot_with_route_planner_d1.sh`
+  - `system_real_robot_with_exploration_planner_d1.sh`
+  - `scripts/stop_d1_nav_stack.sh`
+- Verified remote RViz workflow on a second Ubuntu machine using:
+  - `D1_RUN_RVIZ=0`
+  - `D1_ROS_LOCALHOST_ONLY=0`
+  - `ROS_DOMAIN_ID=42`
+
+### Main debugging work completed
+
+- Diagnosed a major ODIN bridge performance bottleneck.
+  - Raw ODIN topics were healthy, but bridge outputs were heavily degraded.
+  - In the initial minimal test chain:
+    - `/odin1/cloud_slam` was about `10.28 Hz`
+    - `/registered_scan` dropped to about `1.05 Hz`
+    - `/odin1/odometry` was about `10.27 Hz`
+    - `/state_estimation` dropped to about `2.73 Hz`
+    - `/odin1/imu` was about `396.43 Hz`
+    - `/imu/data` dropped to about `61.43 Hz`
+- Root cause analysis showed the slowdown was **not from ODIN itself**, but from the bridge layer in this repository.
+  - The old bridge path handled cloud / odom / imu together.
+  - The cloud callback was especially expensive because ODIN publishes `x y z rgb`, while downstream expected `intensity`.
+  - The old bridge therefore rebuilt the point cloud frame-by-frame and also blocked odom / imu handling.
+- Implemented bridge-side optimizations in:
+  - [src/utilities/odin_autonomy_bridge/src/odin_autonomy_bridge_node.cpp](src/utilities/odin_autonomy_bridge/src/odin_autonomy_bridge_node.cpp)
+  - [src/utilities/odin_autonomy_bridge/launch/odin_autonomy_bridge.launch.py](src/utilities/odin_autonomy_bridge/launch/odin_autonomy_bridge.launch.py)
+
+### Bridge improvements now kept in the repo
+
+- Added a fast cloud conversion path:
+  - when ODIN cloud format is `x y z rgb` or `x y z rgba`, the bridge aliases the color field to `intensity` instead of rebuilding the full cloud point-by-point
+- Removed unnecessary deep copies in the bridge callbacks where possible
+- Added bridge-instance role switches:
+  - `enable_odom_bridge`
+  - `enable_cloud_bridge`
+  - `enable_imu_bridge`
+- Split the previous single bridge process into **three independent bridge instances**:
+  - odom bridge
+  - cloud bridge
+  - imu bridge
+
+### Measured effect after splitting the bridge
+
+With the split bridge architecture enabled, the minimal ODIN test chain measured:
+
+- `/odin1/cloud_slam`: `10.26 Hz`
+- `/registered_scan`: `10.32 Hz`
+- `/odin1/odometry`: `10.26 Hz`
+- `/state_estimation`: `10.26 Hz`
+- `/odin1/imu`: `396.46 Hz`
+- `/imu/data`: `399.04 Hz`
+
+This means the bridge output rate was brought back to approximately the same level as the ODIN source rate, and the previous bridge bottleneck was effectively removed in the isolated validation setup.
+
+### Navigation-side notes
+
+- A temporary experiment was performed to let real-robot `localPlanner` consume `/registered_scan` directly instead of `/terrain_map`.
+- That experiment improved obstacle-source freshness but made the current planner configuration too conservative on hardware, often degenerating to a zero-length local path.
+- For stability, the real-robot route / exploration / MTARE launches were restored to the original `terrain_map`-based local-planning path.
+- The parameterized `useTerrainAnalysis` support and runtime logging were kept in:
+  - [src/base_autonomy/local_planner/launch/local_planner.launch](src/base_autonomy/local_planner/launch/local_planner.launch)
+  - [src/base_autonomy/local_planner/src/localPlanner.cpp](src/base_autonomy/local_planner/src/localPlanner.cpp)
+
+### Current practical status
+
+- The repository now contains a much faster ODIN autonomy bridge implementation.
+- The real-robot navigation launches are still configured conservatively to use `terrain_map` for local planning.
+- The split ODIN bridge should be the preferred base for the next round of full-stack real-robot navigation tests.
+
 ### What is in charge
 
 - `/opt/d1_ros2`

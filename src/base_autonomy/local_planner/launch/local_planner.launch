@@ -16,6 +16,7 @@
   <arg name="stateEstimationTopic" default="/state_estimation"/>
   <arg name="registeredScanTopic" default="/registered_scan"/>
   <arg name="terrainMapTopic" default="/terrain_map"/>
+  <arg name="useTerrainAnalysis" default="true"/>
   <arg name="waypointTopic" default="/way_point"/>
   <arg name="speedTopic" default="/speed"/>
   <arg name="checkObstacleTopic" default="/check_obstacle"/>
@@ -39,7 +40,7 @@
     <param name="twoWayDrive" value="$(var twoWayDrive)" />
     <param name="laserVoxelSize" value="0.05" />
     <param name="terrainVoxelSize" value="0.2" />
-    <param name="useTerrainAnalysis" value="true" />
+    <param name="useTerrainAnalysis" value="$(var useTerrainAnalysis)" />
     <param name="checkObstacle" value="true" />
     <param name="checkRotObstacle" value="false" />
     <param name="adjacentRange" value="3.5" />

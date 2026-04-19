@@ -723,6 +723,12 @@ int main(int argc, char** argv)
   readPathList();
   readCorrespondences();
 
+  RCLCPP_INFO(
+      nh->get_logger(),
+      "localPlanner obstacle source: %s (registeredScanTopic=%s, terrainMapTopic=%s)",
+      useTerrainAnalysis ? "terrain_map" : "registered_scan",
+      registeredScanTopic.c_str(),
+      terrainMapTopic.c_str());
   RCLCPP_INFO(nh->get_logger(), "Initialization complete.");
 
   rclcpp::Rate rate(100);

@@ -33,6 +33,7 @@ src/base_autonomy/vehicle_simulator/log/*
 frames_*.gv
 frames_*.pdf
 *.log
+src/odin_ros_driver/config/Conn_*/
 
 # Test scripts (optional, keep if you want)
 # test_multi_robot.sh
