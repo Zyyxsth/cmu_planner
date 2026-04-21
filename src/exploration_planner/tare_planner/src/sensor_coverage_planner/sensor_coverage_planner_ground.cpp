@@ -880,6 +880,10 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
   nav_msgs::msg::Path global_path_full = global_path.GetPath();
   global_path_full.header.frame_id = "map";
   global_path_full.header.stamp = this->now();
+  for (auto& pose : global_path_full.poses) {
+    pose.header.stamp = global_path_full.header.stamp;
+    pose.header.frame_id = global_path_full.header.frame_id;
+  }
   global_path_full_publisher_->publish(global_path_full);
   // Get the part that connects with the local path
 
@@ -910,6 +914,7 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
   nav_msgs::msg::Path global_path_trim;
   if (local_path.nodes_.size() >= 2) {
     geometry_msgs::msg::PoseStamped first_pose;
+    first_pose.header.frame_id = "map";
     first_pose.pose.position.x = local_path.nodes_.front().position_.x();
     first_pose.pose.position.y = local_path.nodes_.front().position_.y();
     first_pose.pose.position.z = local_path.nodes_.front().position_.z();
@@ -918,6 +923,7 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
 
   for (int i = start_index; i <= end_index; i++) {
     geometry_msgs::msg::PoseStamped pose;
+    pose.header.frame_id = "map";
     pose.pose.position.x = global_path.nodes_[i].position_.x();
     pose.pose.position.y = global_path.nodes_[i].position_.y();
     pose.pose.position.z = global_path.nodes_[i].position_.z();
@@ -925,6 +931,7 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
   }
   if (local_path.nodes_.size() >= 2) {
     geometry_msgs::msg::PoseStamped last_pose;
+    last_pose.header.frame_id = "map";
     last_pose.pose.position.x = local_path.nodes_.back().position_.x();
     last_pose.pose.position.y = local_path.nodes_.back().position_.y();
     last_pose.pose.position.z = local_path.nodes_.back().position_.z();
@@ -932,6 +939,10 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
   }
   global_path_trim.header.frame_id = "map";
   global_path_trim.header.stamp = this->now();
+  for (auto& pose : global_path_trim.poses) {
+    pose.header.stamp = global_path_trim.header.stamp;
+    pose.header.frame_id = global_path_trim.header.frame_id;
+  }
   global_path_publisher_->publish(global_path_trim);
 
   grid_world_->GetVisualizationCloud(grid_world_vis_cloud_->cloud_);
@@ -941,6 +952,10 @@ void SensorCoveragePlanner3D::PublishGlobalPlanningVisualization(
   nav_msgs::msg::Path full_path = exploration_path_.GetPath();
   full_path.header.frame_id = "map";
   full_path.header.stamp = this->now();
+  for (auto& pose : full_path.poses) {
+    pose.header.stamp = full_path.header.stamp;
+    pose.header.frame_id = full_path.header.frame_id;
+  }
   // exploration_path_publisher_->publish(full_path);
   exploration_path_.GetVisualizationCloud(exploration_path_cloud_->cloud_);
   exploration_path_cloud_->Publish();
@@ -969,6 +984,10 @@ void SensorCoveragePlanner3D::PublishLocalPlanningVisualization(
   nav_msgs::msg::Path local_tsp_path = local_path.GetPath();
   local_tsp_path.header.frame_id = "map";
   local_tsp_path.header.stamp = this->now();
+  for (auto& pose : local_tsp_path.poses) {
+    pose.header.stamp = local_tsp_path.header.stamp;
+    pose.header.frame_id = local_tsp_path.header.frame_id;
+  }
   local_tsp_path_publisher_->publish(local_tsp_path);
   local_coverage_planner_->GetSelectedViewPointVisCloud(
       selected_viewpoint_vis_cloud_->cloud_);

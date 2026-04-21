@@ -85,9 +85,11 @@ void ExplorationPath::Reverse()
 nav_msgs::msg::Path ExplorationPath::GetPath() const
 {
   nav_msgs::msg::Path path;
+  path.header.frame_id = "map";
   for (int i = 0; i < nodes_.size(); i++)
   {
     geometry_msgs::msg::PoseStamped pose;
+    pose.header.frame_id = path.header.frame_id;
     pose.pose.position.x = nodes_[i].position_.x();
     pose.pose.position.y = nodes_[i].position_.y();
     pose.pose.position.z = nodes_[i].position_.z();

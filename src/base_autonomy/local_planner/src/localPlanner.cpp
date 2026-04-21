@@ -1009,6 +1009,10 @@ int main(int argc, char** argv)
 
           path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
           path.header.frame_id = vehicleFrame;
+          for (auto & pose : path.poses) {
+            pose.header.stamp = path.header.stamp;
+            pose.header.frame_id = vehicleFrame;
+          }
           pubPath->publish(path);
 
           #if PLOTPATHSET == 1
@@ -1081,6 +1085,10 @@ int main(int argc, char** argv)
 
         path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
         path.header.frame_id = vehicleFrame;
+        for (auto & pose : path.poses) {
+          pose.header.stamp = path.header.stamp;
+          pose.header.frame_id = vehicleFrame;
+        }
         pubPath->publish(path);
         RCLCPP_WARN_THROTTLE(
             nh->get_logger(),

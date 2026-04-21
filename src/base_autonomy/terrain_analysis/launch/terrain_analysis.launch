@@ -4,6 +4,7 @@
   <arg name="registeredScanTopic" default="/registered_scan"/>
   <arg name="mapClearingTopic" default="/map_clearing"/>
   <arg name="terrainMapTopic" default="/terrain_map"/>
+  <arg name="vehicleHeight" default="1.5"/>
 
   <node pkg="terrain_analysis" exec="terrainAnalysis" name="terrainAnalysis" output="screen">
     <param name="scanVoxelSize" value="0.05" />
@@ -26,7 +27,7 @@
     <param name="noDataObstacle" value="false" />
     <param name="noDataBlockSkipNum" value="0" />
     <param name="minBlockPointNum" value="10" />
-    <param name="vehicleHeight" value="1.5" />
+    <param name="vehicleHeight" value="$(var vehicleHeight)" />
     <param name="voxelPointUpdateThre" value="100" />
     <param name="voxelTimeUpdateThre" value="2.0" />
     <param name="minRelZ" value="-1.5" />

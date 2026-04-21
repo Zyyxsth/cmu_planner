@@ -41,6 +41,9 @@ def generate_launch_description():
   d1_ros_localhost_only = LaunchConfiguration('d1_ros_localhost_only')
   autonomy_mode = LaunchConfiguration('autonomy_mode')
   autonomy_speed = LaunchConfiguration('autonomy_speed')
+  odin_base_frame = LaunchConfiguration('odin_base_frame')
+  planner_sensor_frame = LaunchConfiguration('planner_sensor_frame')
+  odin_cloud_topic = LaunchConfiguration('odin_cloud_topic')
 
   ld = LaunchDescription()
   for name, default in [
@@ -73,6 +76,9 @@ def generate_launch_description():
       ('d1_ros_localhost_only', '1'),
       ('autonomy_mode', 'false'),
       ('autonomy_speed', '0.3'),
+      ('odin_base_frame', 'odin1_base_link'),
+      ('planner_sensor_frame', 'sensor'),
+      ('odin_cloud_topic', '/odin1/cloud_slam'),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
 
@@ -132,6 +138,15 @@ def generate_launch_description():
     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
     condition=IfCondition(start_odin_driver)))
 
+  ld.add_action(Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='odin_base_to_planner_sensor_tf',
+    output='screen',
+    arguments=['0', '0', '0', '0', '0', '0',
+               odin_base_frame, planner_sensor_frame],
+    condition=IfCondition(start_odin_driver)))
+
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
       get_package_share_directory('receive_theta'), 'launch', 'receive_theta.launch')),
@@ -162,6 +177,10 @@ def generate_launch_description():
   ld.add_action(IncludeLaunchDescription(
     PythonLaunchDescriptionSource([get_package_share_directory('odin_autonomy_bridge'),
                                    '/launch/odin_autonomy_bridge.launch.py']),
+    launch_arguments={
+      'input_cloud_topic': odin_cloud_topic,
+      'cloud_transform_with_latest_odom': 'false',
+    }.items(),
     condition=IfCondition(start_odin_driver)))
 
   ld.add_action(IncludeLaunchDescription(

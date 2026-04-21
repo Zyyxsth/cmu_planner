@@ -18,6 +18,10 @@ def generate_launch_description():
   sensorOffsetX = LaunchConfiguration('sensorOffsetX')
   sensorOffsetY = LaunchConfiguration('sensorOffsetY')
   cameraOffsetZ = LaunchConfiguration('cameraOffsetZ')
+  local_planner_vehicle_length = LaunchConfiguration('local_planner_vehicle_length')
+  local_planner_vehicle_width = LaunchConfiguration('local_planner_vehicle_width')
+  terrain_vehicle_height = LaunchConfiguration('terrain_vehicle_height')
+  terrain_ext_vehicle_height = LaunchConfiguration('terrain_ext_vehicle_height')
   vehicleX = LaunchConfiguration('vehicleX')
   vehicleY = LaunchConfiguration('vehicleY')
   checkTerrainConn = LaunchConfiguration('checkTerrainConn')
@@ -41,6 +45,14 @@ def generate_launch_description():
   d1_ros_localhost_only = LaunchConfiguration('d1_ros_localhost_only')
   autonomy_mode = LaunchConfiguration('autonomy_mode')
   autonomy_speed = LaunchConfiguration('autonomy_speed')
+  local_planner_check_rot_obstacle = LaunchConfiguration('local_planner_check_rot_obstacle')
+  local_planner_obstacle_height_thre = LaunchConfiguration('local_planner_obstacle_height_thre')
+  local_planner_ground_height_thre = LaunchConfiguration('local_planner_ground_height_thre')
+  odin_base_frame = LaunchConfiguration('odin_base_frame')
+  planner_sensor_frame = LaunchConfiguration('planner_sensor_frame')
+  odin_cloud_topic = LaunchConfiguration('odin_cloud_topic')
+  exploration_boundary_file = LaunchConfiguration('exploration_boundary_file')
+  exploration_planner_config_file = LaunchConfiguration('exploration_planner_config_file')
 
   ld = LaunchDescription()
   for name, default in [
@@ -49,6 +61,10 @@ def generate_launch_description():
       ('sensorOffsetX', '0.0'),
       ('sensorOffsetY', '0.0'),
       ('cameraOffsetZ', '0.16'),
+      ('local_planner_vehicle_length', '0.6'),
+      ('local_planner_vehicle_width', '0.6'),
+      ('terrain_vehicle_height', '1.5'),
+      ('terrain_ext_vehicle_height', '1.5'),
       ('vehicleX', '0.0'),
       ('vehicleY', '0.0'),
       ('checkTerrainConn', 'true'),
@@ -73,6 +89,15 @@ def generate_launch_description():
       ('d1_ros_localhost_only', '1'),
       ('autonomy_mode', 'false'),
       ('autonomy_speed', '0.3'),
+      ('local_planner_check_rot_obstacle', 'false'),
+      ('local_planner_obstacle_height_thre', '0.15'),
+      ('local_planner_ground_height_thre', '0.05'),
+      ('odin_base_frame', 'odin1_base_link'),
+      ('planner_sensor_frame', 'sensor'),
+      ('odin_cloud_topic', '/odin1/cloud_slam'),
+      ('exploration_boundary_file', os.path.join(
+          get_package_share_directory('tare_planner'), 'boundary.ply')),
+      ('exploration_planner_config_file', ''),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
 
@@ -96,6 +121,8 @@ def generate_launch_description():
       'sensorOffsetX': sensorOffsetX,
       'sensorOffsetY': sensorOffsetY,
       'cameraOffsetZ': cameraOffsetZ,
+      'vehicleLength': local_planner_vehicle_length,
+      'vehicleWidth': local_planner_vehicle_width,
       'goalX': vehicleX,
       'goalY': vehicleY,
       'autonomyMode': autonomy_mode,
@@ -103,17 +130,24 @@ def generate_launch_description():
       'ignoreJoyAutonomySwitch': 'true',
       'ignoreJoyManualSwitch': 'true',
       'autonomySpeed': autonomy_speed,
+      'checkRotObstacle': local_planner_check_rot_obstacle,
+      'obstacleHeightThre': local_planner_obstacle_height_thre,
+      'groundHeightThre': local_planner_ground_height_thre,
       'cmdVelTopic': d1_cmd_topic,
     }.items()))
 
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
-      get_package_share_directory('terrain_analysis'), 'launch', 'terrain_analysis.launch'))))
+      get_package_share_directory('terrain_analysis'), 'launch', 'terrain_analysis.launch')),
+    launch_arguments={'vehicleHeight': terrain_vehicle_height}.items()))
 
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
       get_package_share_directory('terrain_analysis_ext'), 'launch', 'terrain_analysis_ext.launch')),
-    launch_arguments={'checkTerrainConn': checkTerrainConn}.items()))
+    launch_arguments={
+      'checkTerrainConn': checkTerrainConn,
+      'vehicleHeight': terrain_ext_vehicle_height,
+    }.items()))
 
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
@@ -132,6 +166,15 @@ def generate_launch_description():
     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
     condition=IfCondition(start_odin_driver)))
 
+  ld.add_action(Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='odin_base_to_planner_sensor_tf',
+    output='screen',
+    arguments=['0', '0', '0', '0', '0', '0',
+               odin_base_frame, planner_sensor_frame],
+    condition=IfCondition(start_odin_driver)))
+
   ld.add_action(IncludeLaunchDescription(
     FrontendLaunchDescriptionSource(os.path.join(
       get_package_share_directory('receive_theta'), 'launch', 'receive_theta.launch')),
@@ -147,7 +190,11 @@ def generate_launch_description():
 
   ld.add_action(IncludeLaunchDescription(
     PythonLaunchDescriptionSource([get_package_share_directory('tare_planner'), '/explore_world.launch']),
-    launch_arguments={'scenario': exploration_planner_config}.items()))
+    launch_arguments={
+      'scenario': exploration_planner_config,
+      'config_file': exploration_planner_config_file,
+      'boundary_file': exploration_boundary_file,
+    }.items()))
 
   ld.add_action(Node(
     package='odin_ros_driver',
@@ -161,6 +208,10 @@ def generate_launch_description():
   ld.add_action(IncludeLaunchDescription(
     PythonLaunchDescriptionSource([get_package_share_directory('odin_autonomy_bridge'),
                                    '/launch/odin_autonomy_bridge.launch.py']),
+    launch_arguments={
+      'input_cloud_topic': odin_cloud_topic,
+      'cloud_transform_with_latest_odom': 'false',
+    }.items(),
     condition=IfCondition(start_odin_driver)))
 
   ld.add_action(IncludeLaunchDescription(

@@ -10,7 +10,227 @@ This fork is the working repository for the current **D1H + ODIN** real-robot se
 
 In other words, this repo now acts as the **upper autonomy stack** for D1H, while the vendor bringup remains the real low-level controller.
 
+## Chinese Parameter Guide
+
+For the current D1H + ODIN real-robot stack, a Chinese parameter guide is available here:
+
+- [docs/D1H_ODIN_PARAMETER_GUIDE_CN.md](/home/robot/cmu_planner/docs/D1H_ODIN_PARAMETER_GUIDE_CN.md)
+- [docs/TARE_EXPLORATION_GUIDE_CN.md](/home/robot/cmu_planner/docs/TARE_EXPLORATION_GUIDE_CN.md)
+
+It summarizes the main robot / scene / sensor / obstacle / exploration parameters, what they mean, their current values, and when you would consider changing them.
+
 ## Current Validated Real-Robot Workflow
+
+### 当前推荐启动方式
+
+下面这套是目前推荐的真机探索启动流程。核心原则只有两条：
+
+- 每次测试前，先清掉上一轮 `cmu_planner` 上层残留进程
+- 不要手动去动 `/opt/d1_ros2` 的 vendor 底层控制服务
+
+这套流程默认假设：
+
+- vendor 低层已经正常运行
+- 遥控器可以切到 `SDK mode`
+- 当前仓库已经编译并 `source ./source_workspace_setup.bash`
+
+#### 1. 先清理上一轮上层进程
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/cleanup_d1_nav_stack.sh
+```
+
+这条命令只清理本仓库的上层导航 / 探索 / ODIN bridge / Foxglove 相关进程，不会去停 vendor 底层控制。
+
+#### 2. 当前推荐方式：先单独起探索
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_only.sh
+```
+
+这条脚本会自动做几件事：
+
+- 启动前再次清理旧的上层进程
+- 在当前终端前台启动真机探索 launch
+- 打印当前使用的边界文件、配置文件和日志路径
+- 让启动期的真实报错直接打印在当前终端，方便判断是“上层真的退了”，还是“上层还活着但车暂时没走”
+
+注意：
+
+- 这条脚本现在是 **前台运行**
+- 启动后请保持这个终端不要关
+- 停止时直接在这个终端里按 `Ctrl+C`
+
+补充说明：
+
+- 之前我们已经定位过一个脚本级问题：
+  - `start_d1_exploration_only.sh` 早期版本会因为 `set -u` 和 ROS `setup.bash` 的组合，在启动时直接报
+    `AMENT_TRACE_SETUP_FILES: unbound variable`
+  - 这个问题现在已经修掉
+- 所以如果你后面再看到“探索刚启动就立刻退出”，不要先怀疑参数，先确认自己用的是仓库里最新脚本
+
+默认使用：
+
+- 边界文件：
+  - `src/exploration_planner/tare_planner/data/boundary_from_odom.ply`
+- 探索配置：
+  - `src/exploration_planner/tare_planner/config/indoor_d1h_20x5_reference.yaml`
+
+之所以推荐分两步，是因为这台机器在 **探索 + ODIN + Foxglove 同时抢启动资源** 时，更容易出现：
+
+- 上层刚起来又退掉
+- Foxglove 没拉起来
+- 话题没完全传出去
+
+#### 3. 等探索先稳定，再单独起 Foxglove
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_foxglove_filtered.sh
+```
+
+如果你想后台起，也可以单独开一个终端跑这条。
+
+#### 4. 如果要显式指定边界和配置文件
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_only.sh \
+  --boundary-file src/exploration_planner/tare_planner/data/boundary_from_odom.ply \
+  --config-file src/exploration_planner/tare_planner/config/indoor_d1h_20x5_reference.yaml
+```
+
+#### 5. 如果要临时覆盖局部规划的障碍阈值
+
+例如：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_only.sh \
+  --obstacle-height-thre 0.08 \
+  --ground-height-thre 0.05
+```
+
+这样做只影响这一轮启动，不会改仓库默认值。
+
+#### 5.1 如果你还是想用一条命令一起起
+
+仓库里仍然保留了组合脚本：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_with_foxglove.sh \
+  --foxglove-delay-seconds 15
+```
+
+但目前 **不推荐把它当主流程**。
+
+如果你只想先测探索，不想同时起远端可视化：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_with_foxglove.sh --no-foxglove
+```
+
+#### 6. Foxglove 连接地址
+
+脚本启动成功后，Foxglove 默认监听：
+
+```text
+ws://10.1.1.36:8765
+```
+
+如果机器人 IP 变了，脚本会按当前机器 IP 打印新的地址。
+
+#### 7. 启动后怎么判断是不是真的正常
+
+不要只看 launch 终端“像是起来了”。推荐直接检查这几项：
+
+```bash
+source /opt/ros/humble/setup.bash
+source /opt/d1_ros2/local_setup.bash
+cd /home/robot/cmu_planner
+source ./source_workspace_setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+ros2 topic list | grep -E "registered_scan|state_estimation|way_point|path"
+ros2 topic echo /way_point --once
+ros2 topic echo /state_estimation --once
+```
+
+一轮真正正常的启动，至少应该满足：
+
+- `/registered_scan` 在发
+- `/state_estimation` 在发
+- `/way_point` 会出现
+- `/path` 会随着规划更新
+- 前台终端里能看到：
+  - `Exploration Started`
+  - `localPlanner received waypoint ... autonomy=true`
+  - `pathFollower received waypoint ... autonomy=true`
+
+如果机器人已经切到 `SDK mode`，还可以进一步看：
+
+```bash
+ros2 topic echo /d15020108/command/cmd_twist --once
+```
+
+如果这条也有输出，说明上层已经在真正给底层发速度命令。
+
+这次前台诊断时，稳定运行的一轮会继续出现类似日志：
+
+```text
+Exploration Started
+localPlanner received waypoint: frame=map ...
+pathFollower received waypoint: frame=map ...
+pathFollower status: autonomy=true ... cmd_vx=0.315
+```
+
+如果前台启动后很快只剩 D1 底层节点，而 `/registered_scan`、`/state_estimation`、`/way_point`、`/path` 都一起消失，那就是上层真的退了；如果这些话题还在，只是车没动，那就不是“上层直接死掉”。
+
+#### 8. 当前探索真机上必须注意的一点
+
+当前自定义探索配置已经统一为：
+
+- TARE 使用 `/state_estimation`
+- 不再使用 `/state_estimation_at_scan` 作为探索主位姿
+
+这是因为真机上 `/state_estimation_at_scan` 和当前实时位姿可能明显错开，容易导致：
+
+- `local_path` 和真实 odom 不对齐
+- `localPlanner failed to find path`
+- 机器人卡住不动
+
+如果以后换配置文件，记得检查：
+
+- `sub_state_estimation_topic_ : /state_estimation`
+
+#### 9. 常见故障的最短排查顺序
+
+- 机器人不动：
+  - 先确认是否切到 `SDK mode`
+  - 再看 `/way_point`
+  - 再看 `/path`
+  - 最后看 `/d15020108/command/cmd_twist`
+- Foxglove 连不上：
+  - 先确认 `start_foxglove_filtered.sh` 已经启动
+  - 再看 `8765` 端口是否监听
+  - 再看是否连的是当前脚本打印出来的 IP
+- 轨迹和 odom 明显错位：
+  - 先检查当前探索 yaml 是否仍在用 `/state_estimation`
+
+#### 10. 停止当前这一轮
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/cleanup_d1_nav_stack.sh
+```
+
+如果只是想停上层，这一条就够了。
 
 ## Weekly Update
 
@@ -91,6 +311,112 @@ This means the bridge output rate was brought back to approximately the same lev
 - The repository now contains a much faster ODIN autonomy bridge implementation.
 - The real-robot navigation launches are still configured conservatively to use `terrain_map` for local planning.
 - The split ODIN bridge should be the preferred base for the next round of full-stack real-robot navigation tests.
+
+### 2026-04-21
+
+This round focused on making the **real-robot exploration workflow repeatable**, explaining the TARE exploration logic, and separating real algorithm issues from startup / visualization noise.
+
+### Exploration workflow and tooling
+
+- Standardized the real-robot exploration startup sequence so we always:
+  - clean the previous upper stack
+  - start exploration first
+  - start Foxglove separately after exploration is stable
+- Added and validated helper scripts:
+  - [scripts/start_d1_exploration_only.sh](/home/robot/cmu_planner/scripts/start_d1_exploration_only.sh)
+  - [scripts/start_d1_exploration_with_foxglove.sh](/home/robot/cmu_planner/scripts/start_d1_exploration_with_foxglove.sh)
+  - [scripts/start_foxglove_filtered.sh](/home/robot/cmu_planner/scripts/start_foxglove_filtered.sh)
+  - [scripts/cleanup_d1_nav_stack.sh](/home/robot/cmu_planner/scripts/cleanup_d1_nav_stack.sh)
+- Fixed the exploration foreground script so it no longer dies on ROS setup with:
+  - `AMENT_TRACE_SETUP_FILES: unbound variable`
+- Confirmed that the unstable behavior we saw before was often from:
+  - mixed old processes
+  - background startup hiding real launch errors
+  - exploration and Foxglove competing for resources during startup
+
+### Foxglove and remote visualization
+
+- Brought up Foxglove reliably on the real robot and moved to a “start it separately” workflow.
+- Added Chinese documentation for the current Foxglove usage and topic interpretation:
+  - [docs/FOXGLOVE_LAYOUT.md](/home/robot/cmu_planner/docs/FOXGLOVE_LAYOUT.md)
+- Verified that Foxglove can advertise and stream:
+  - `/terrain_map`
+  - `/terrain_map_ext`
+  - `/path`
+  - `/way_point`
+  - exploration clouds and viewpoint clouds
+- Removed `/registered_scan` from the filtered Foxglove bridge path to reduce remote bandwidth and topic overload during exploration monitoring.
+- Identified that several `tare_visualizer/*` cloud topics are poor real-time debugging sources, while the actually useful exploration-debug clouds are:
+  - `/viewpoint_vis_cloud`
+  - `/selected_viewpoint_vis_cloud`
+  - `/lookahead_point_cloud`
+
+### Exploration-side debugging conclusions
+
+- Confirmed that TARE can return home **before the human operator feels the full navigation boundary has been explored**.
+- Traced this to TARE’s own completion logic:
+  - completion is driven by frontier / uncovered / viewpoint selection state
+  - not by physically traversing every part of the boundary
+- Verified with runtime checks that:
+  - `/exploration_finish` becomes `true`
+  - `/way_point` switches back to the origin region
+  - the stack is still alive when this happens, so this is a planner decision, not a crash
+- Confirmed that the previous `/state_estimation_at_scan` vs `/state_estimation` mismatch was a real issue on hardware.
+  - TARE was updated to use `/state_estimation` in the custom exploration configs
+  - this removed a major odom / local-path inconsistency during exploration
+
+### Robot / environment parameter work
+
+- Added Chinese parameter documentation for robot size, sensing, terrain interpretation, and exploration tuning:
+  - [docs/D1H_ODIN_PARAMETER_GUIDE_CN.md](/home/robot/cmu_planner/docs/D1H_ODIN_PARAMETER_GUIDE_CN.md)
+  - [docs/TARE_EXPLORATION_GUIDE_CN.md](/home/robot/cmu_planner/docs/TARE_EXPLORATION_GUIDE_CN.md)
+- Incorporated current D1H physical-envelope assumptions into the tuning notes:
+  - standing size about `375/750 x 493 x 643 mm`
+  - crouched size about `470/845 x 580 x 250 mm`
+- Added a boundary-recording workflow from ODIN odometry:
+  - [scripts/record_boundary_from_odom.py](/home/robot/cmu_planner/scripts/record_boundary_from_odom.py)
+  - [scripts/record_boundary_from_odom.sh](/home/robot/cmu_planner/scripts/record_boundary_from_odom.sh)
+- Generated and used:
+  - [boundary_from_odom.ply](/home/robot/cmu_planner/src/exploration_planner/tare_planner/data/boundary_from_odom.ply)
+
+### Parameter experiments done on hardware
+
+- Tested lower obstacle thresholds for low-profile obstacles:
+  - `obstacleHeightThre` was experimentally reduced from `0.15` to `0.10`, then `0.08`
+- Tested exploration-side sensor range reduction:
+  - `kSensorRange` reduced to `2.5` for the current site
+- Tested larger local-planner body envelope through launch-time overrides:
+  - temporary comparisons with larger `vehicleLength` / `vehicleWidth`
+- Outcome so far:
+  - lower obstacle thresholds can help treat lower obstacles more conservatively
+  - but the dominant remaining exploration issue is still **early return-home / early completion**
+  - not a simple startup failure or Foxglove failure
+
+### Current interpretation of the remaining exploration issue
+
+- The current site-specific issue is likely not “the system crashes”.
+- It is more likely:
+  - small frontier clusters are being discarded too early
+  - cells are being marked `covered` too aggressively
+  - local viewpoint selection becomes empty too early
+- To support that next round of tests, a more conservative site-specific exploration config was added:
+  - [indoor_d1h_20x5_deeper_coverage.yaml](/home/robot/cmu_planner/src/exploration_planner/tare_planner/config/indoor_d1h_20x5_deeper_coverage.yaml)
+
+### Current TODO
+
+- Low obstacle handling on real hardware still needs more validation.
+  - In the current stack, some low-profile or hollow obstacles can be sensed by part of the pipeline but still fail to become a stable hard constraint in the final executed path.
+  - We still need a clean comparison of:
+    - what enters the exploration-side local candidate path
+    - what enters the final `/path` and `/way_point`
+    - whether low obstacles are consistently represented in `terrain_map`, contour / polygon logic, and local execution
+- Foxglove exploration visualization still needs cleanup and better interpretation support.
+  - The bridge is confirmed to advertise and transmit the exploration topics, but several of the current exploration-debug topics are sparse, intermittent, or publish delete markers when no active subspace exists.
+  - We still need a clearer Foxglove layout / workflow for:
+    - explored vs unexplored area interpretation
+    - viewpoint / selected viewpoint visualization
+    - uncovered cloud / frontier visualization
+    - understanding why the planner chooses a given local path
 
 ### What is in charge
 
@@ -189,11 +515,78 @@ ros2 topic list | grep -E "state_estimation|registered_scan|path|way_point"
 rviz2 -d /path/to/cmu_planner/src/route_planner/far_planner/rviz/default.rviz
 ```
 
+### Remote Foxglove
+
+For remote visualization, Foxglove Desktop is often a better fit than RViz in this setup, especially when you only want to inspect the robot from another machine.
+
+Recommended architecture:
+
+- run the navigation stack on the robot
+- run `foxglove_bridge` on the robot
+- connect from another computer using **Foxglove Desktop**
+
+Install the bridge on the robot:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ros-humble-foxglove-bridge
+```
+
+Start the bridge on the robot:
+
+```bash
+source /opt/ros/humble/setup.bash
+source /opt/d1_ros2/local_setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+```
+
+Then connect from another machine using:
+
+```text
+ws://10.1.1.36:8765
+```
+
+Important note:
+
+- prefer **Foxglove Desktop**, not the browser version
+- the browser version is more likely to fail on `ws://` connections because of web security / mixed-content restrictions
+
+On macOS, Foxglove Desktop can be opened directly with:
+
+```bash
+open "foxglove://open?ds=foxglove-websocket&ds.url=ws://10.1.1.36:8765/"
+```
+
+Recommended first Foxglove panels:
+
+- `3D`
+  - `TF`
+  - `/registered_scan`
+  - `/path`
+  - `/way_point`
+  - `/viz_graph_topic`
+- `Raw Messages`
+  - `/state_estimation`
+  - `/goal_point`
+  - `/far_reach_goal_status`
+  - `/d15020108/rl_controller/fsm`
+- `Plot`
+  - `/state_estimation.pose.pose.position.x`
+  - `/state_estimation.pose.pose.position.y`
+  - `/state_estimation.twist.twist.linear.x`
+  - `/state_estimation.twist.twist.angular.z`
+
+When using Foxglove remotely over Wi-Fi, start with lighter topics first. Dense point clouds may still flicker on the remote side if the network drops packets, even when the robot-side topic rate is healthy.
+
 ### More detailed notes
 
 For the current D1H + ODIN setup notes, command conventions, and remote RViz details, see:
 
 - [docs/D1H_ODIN_NAV_FLOW.md](docs/D1H_ODIN_NAV_FLOW.md)
+- [docs/FOXGLOVE_LAYOUT.md](docs/FOXGLOVE_LAYOUT.md)
 
 ---
 

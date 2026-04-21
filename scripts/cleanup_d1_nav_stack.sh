@@ -10,9 +10,13 @@ PATTERNS=(
   "ros2 launch vehicle_simulator system_real_robot_with_route_planner_d1.launch.py"
   "ros2 launch vehicle_simulator system_real_robot_with_exploration_planner_d1.launch.py"
   "ros2 launch vehicle_simulator system_real_robot_with_mtare_planner_d1.launch.py"
+  "ros2 launch foxglove_bridge foxglove_bridge_launch.xml"
+  "/opt/ros/humble/lib/foxglove_bridge/foxglove_bridge"
   "/home/robot/cmu_planner/install/odin_ros_driver/lib/odin_ros_driver/host_sdk_sample"
   "/home/robot/cmu_planner/install/odin_autonomy_bridge/lib/odin_autonomy_bridge/odin_autonomy_bridge_node"
   "/home/robot/cmu_planner/install/d1_compat_bridge/lib/d1_compat_bridge/d1_compat_bridge_node"
+  "/home/robot/cmu_planner/install/tare_planner/lib/tare_planner/navigationBoundary"
+  "/home/robot/cmu_planner/install/tare_planner/lib/tare_planner/tare_planner_node"
   "/home/robot/cmu_planner/install/local_planner/lib/local_planner/localPlanner"
   "/home/robot/cmu_planner/install/local_planner/lib/local_planner/pathFollower"
   "/home/robot/cmu_planner/install/far_planner/lib/far_planner/far_planner"
@@ -22,6 +26,7 @@ PATTERNS=(
   "/home/robot/cmu_planner/install/sensor_scan_generation/lib/sensor_scan_generation/sensorScanGeneration"
   "/home/robot/cmu_planner/install/visualization_tools/lib/visualization_tools/visualizationTools"
   "/opt/ros/humble/lib/tf2_ros/static_transform_publisher 0 0 0 0 0 0 map odom"
+  "/opt/ros/humble/lib/tf2_ros/static_transform_publisher 0 0 0 0 0 0 map boundary_preview"
   "/opt/ros/humble/lib/tf2_ros/static_transform_publisher -0.0 -0.0 0 0 0 0 /sensor /vehicle"
   "/opt/ros/humble/lib/tf2_ros/static_transform_publisher 0 0 0.16 -1.5707963 0 -1.5707963 /sensor /camera"
   "/opt/ros/humble/lib/joy/joy_node --ros-args -r __node:=ps3_joy"
@@ -52,5 +57,5 @@ done
 echo ""
 echo "Remaining upper-stack processes:"
 ps -eo pid,ppid,stat,cmd | grep -E \
-  'system_real_robot_with_(route|exploration|mtare)_planner_d1.launch.py|host_sdk_sample|odin_autonomy_bridge_node|d1_compat_bridge_node|localPlanner|pathFollower|far_planner|graph_decoder|terrainAnalysis|terrainAnalysisExt|sensorScanGeneration|visualizationTools|map_to_odom_tf|vehicleTransPublisher|sensorTransPublisher|ps3_joy' \
+  'system_real_robot_with_(route|exploration|mtare)_planner_d1.launch.py|foxglove_bridge|host_sdk_sample|odin_autonomy_bridge_node|d1_compat_bridge_node|navigationBoundary|tare_planner_node|localPlanner|pathFollower|far_planner|graph_decoder|terrainAnalysis|terrainAnalysisExt|sensorScanGeneration|visualizationTools|map_to_odom_tf|vehicleTransPublisher|sensorTransPublisher|ps3_joy' \
   | grep -v grep || echo "None"

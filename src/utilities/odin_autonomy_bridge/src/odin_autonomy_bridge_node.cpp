@@ -1,4 +1,7 @@
+#include <cmath>
+#include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -21,6 +24,7 @@ class OdinAutonomyBridge : public rclcpp::Node {
     declare_parameter<std::string>("world_frame", "map");
     declare_parameter<bool>("rewrite_frame_id", true);
     declare_parameter<bool>("alias_rgb_field_as_intensity", true);
+    declare_parameter<bool>("cloud_transform_with_latest_odom", false);
     declare_parameter<bool>("enable_odom_bridge", true);
     declare_parameter<bool>("enable_cloud_bridge", true);
     declare_parameter<bool>("enable_imu_bridge", true);
@@ -37,13 +41,13 @@ class OdinAutonomyBridge : public rclcpp::Node {
     rewrite_frame_id_ = get_parameter("rewrite_frame_id").as_bool();
     alias_rgb_field_as_intensity_ =
         get_parameter("alias_rgb_field_as_intensity").as_bool();
+    cloud_transform_with_latest_odom_ =
+        get_parameter("cloud_transform_with_latest_odom").as_bool();
     enable_odom_bridge_ = get_parameter("enable_odom_bridge").as_bool();
     enable_cloud_bridge_ = get_parameter("enable_cloud_bridge").as_bool();
     enable_imu_bridge_ = get_parameter("enable_imu_bridge").as_bool();
 
-    if (enable_odom_bridge_) {
-      odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
-          output_state_estimation_topic_, 20);
+    if (enable_odom_bridge_ || cloud_transform_with_latest_odom_) {
       odom_callback_group_ =
           create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
       rclcpp::SubscriptionOptions odom_options;
@@ -53,6 +57,11 @@ class OdinAutonomyBridge : public rclcpp::Node {
           std::bind(&OdinAutonomyBridge::OdomCallback, this,
                     std::placeholders::_1),
           odom_options);
+    }
+
+    if (enable_odom_bridge_) {
+      odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
+          output_state_estimation_topic_, 20);
     }
 
     if (enable_cloud_bridge_) {
@@ -84,11 +93,12 @@ class OdinAutonomyBridge : public rclcpp::Node {
 
     RCLCPP_INFO(
         get_logger(),
-        "Odin bridge started. odom:%s cloud:%s imu:%s -> state:%s scan:%s imu_out:%s alias_rgb_field_as_intensity:%s enable_odom:%s enable_cloud:%s enable_imu:%s",
+        "Odin bridge started. odom:%s cloud:%s imu:%s -> state:%s scan:%s imu_out:%s alias_rgb_field_as_intensity:%s cloud_transform_with_latest_odom:%s enable_odom:%s enable_cloud:%s enable_imu:%s",
         input_odom_topic_.c_str(), input_cloud_topic_.c_str(),
         input_imu_topic_.c_str(), output_state_estimation_topic_.c_str(),
         output_registered_scan_topic_.c_str(), output_imu_topic_.c_str(),
         alias_rgb_field_as_intensity_ ? "true" : "false",
+        cloud_transform_with_latest_odom_ ? "true" : "false",
         enable_odom_bridge_ ? "true" : "false",
         enable_cloud_bridge_ ? "true" : "false",
         enable_imu_bridge_ ? "true" : "false");
@@ -110,6 +120,20 @@ class OdinAutonomyBridge : public rclcpp::Node {
       const sensor_msgs::msg::PointCloud2 & msg,
       const std::string & field_name) {
     return FindField(msg, field_name) != nullptr;
+  }
+
+  static bool HasFloat32XYZFields(const sensor_msgs::msg::PointCloud2 & msg) {
+    const auto * x_field = FindField(msg, "x");
+    const auto * y_field = FindField(msg, "y");
+    const auto * z_field = FindField(msg, "z");
+    if (x_field == nullptr || y_field == nullptr || z_field == nullptr) {
+      return false;
+    }
+
+    return x_field->datatype == sensor_msgs::msg::PointField::FLOAT32 &&
+           y_field->datatype == sensor_msgs::msg::PointField::FLOAT32 &&
+           z_field->datatype == sensor_msgs::msg::PointField::FLOAT32 &&
+           x_field->count == 1 && y_field->count == 1 && z_field->count == 1;
   }
 
   static bool CanAliasRgbFieldAsIntensity(
@@ -201,30 +225,140 @@ class OdinAutonomyBridge : public rclcpp::Node {
   }
 
   void OdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    {
+      std::lock_guard<std::mutex> lock(latest_odom_mutex_);
+      latest_odom_translation_x_ = msg->pose.pose.position.x;
+      latest_odom_translation_y_ = msg->pose.pose.position.y;
+      latest_odom_translation_z_ = msg->pose.pose.position.z;
+      latest_odom_qx_ = msg->pose.pose.orientation.x;
+      latest_odom_qy_ = msg->pose.pose.orientation.y;
+      latest_odom_qz_ = msg->pose.pose.orientation.z;
+      latest_odom_qw_ = msg->pose.pose.orientation.w;
+      latest_odom_available_ = true;
+    }
+
+    if (!enable_odom_bridge_) {
+      return;
+    }
+
     if (rewrite_frame_id_) {
       msg->header.frame_id = world_frame_;
     }
     odom_pub_->publish(*msg);
   }
 
-  void CloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-    if (rewrite_frame_id_) {
-      msg->header.frame_id = world_frame_;
+  bool TransformCloudWithLatestOdom(sensor_msgs::msg::PointCloud2 * msg) {
+    if (!HasFloat32XYZFields(*msg)) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 5000,
+          "Cloud transform requested but x/y/z float32 fields are unavailable.");
+      return false;
     }
-    if (!HasField(*msg, "intensity")) {
-      if (alias_rgb_field_as_intensity_ && CanAliasRgbFieldAsIntensity(*msg)) {
-        AliasRgbFieldAsIntensity(msg.get());
-        cloud_pub_->publish(*msg);
-      } else {
-        auto out = AddDefaultIntensityField(*msg);
-        if (rewrite_frame_id_) {
-          out.header.frame_id = world_frame_;
-        }
+
+    double tx = 0.0;
+    double ty = 0.0;
+    double tz = 0.0;
+    double qx = 0.0;
+    double qy = 0.0;
+    double qz = 0.0;
+    double qw = 1.0;
+    {
+      std::lock_guard<std::mutex> lock(latest_odom_mutex_);
+      if (!latest_odom_available_) {
+        RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 5000,
+            "Dropping cloud because no odometry has been cached yet.");
+        return false;
+      }
+      tx = latest_odom_translation_x_;
+      ty = latest_odom_translation_y_;
+      tz = latest_odom_translation_z_;
+      qx = latest_odom_qx_;
+      qy = latest_odom_qy_;
+      qz = latest_odom_qz_;
+      qw = latest_odom_qw_;
+    }
+
+    const auto * x_field = FindField(*msg, "x");
+    const auto * y_field = FindField(*msg, "y");
+    const auto * z_field = FindField(*msg, "z");
+
+    const double q_norm = std::sqrt(
+        qx * qx + qy * qy + qz * qz + qw * qw);
+    if (q_norm <= 1e-9) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 5000,
+          "Dropping cloud because odometry quaternion is invalid.");
+      return false;
+    }
+
+    qx /= q_norm;
+    qy /= q_norm;
+    qz /= q_norm;
+    qw /= q_norm;
+
+    const double r00 = 1.0 - 2.0 * (qy * qy + qz * qz);
+    const double r01 = 2.0 * (qx * qy - qz * qw);
+    const double r02 = 2.0 * (qx * qz + qy * qw);
+    const double r10 = 2.0 * (qx * qy + qz * qw);
+    const double r11 = 1.0 - 2.0 * (qx * qx + qz * qz);
+    const double r12 = 2.0 * (qy * qz - qx * qw);
+    const double r20 = 2.0 * (qx * qz - qy * qw);
+    const double r21 = 2.0 * (qy * qz + qx * qw);
+    const double r22 = 1.0 - 2.0 * (qx * qx + qy * qy);
+
+    const size_t point_count =
+        static_cast<size_t>(msg->width) * static_cast<size_t>(msg->height);
+    auto * ptr = msg->data.data();
+    for (size_t i = 0; i < point_count; ++i) {
+      float x = 0.0f;
+      float y = 0.0f;
+      float z = 0.0f;
+      std::memcpy(&x, ptr + x_field->offset, sizeof(float));
+      std::memcpy(&y, ptr + y_field->offset, sizeof(float));
+      std::memcpy(&z, ptr + z_field->offset, sizeof(float));
+
+      const double wx = r00 * x + r01 * y + r02 * z + tx;
+      const double wy = r10 * x + r11 * y + r12 * z + ty;
+      const double wz = r20 * x + r21 * y + r22 * z + tz;
+
+      const float wx_f = static_cast<float>(wx);
+      const float wy_f = static_cast<float>(wy);
+      const float wz_f = static_cast<float>(wz);
+      std::memcpy(ptr + x_field->offset, &wx_f, sizeof(float));
+      std::memcpy(ptr + y_field->offset, &wy_f, sizeof(float));
+      std::memcpy(ptr + z_field->offset, &wz_f, sizeof(float));
+      ptr += msg->point_step;
+    }
+
+    msg->header.frame_id = world_frame_;
+    return true;
+  }
+
+  void CloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    auto out = *msg;
+
+    if (cloud_transform_with_latest_odom_) {
+      if (!TransformCloudWithLatestOdom(&out)) {
+        return;
+      }
+    } else if (rewrite_frame_id_) {
+      out.header.frame_id = world_frame_;
+    }
+    if (!HasField(out, "intensity")) {
+      if (alias_rgb_field_as_intensity_ && CanAliasRgbFieldAsIntensity(out)) {
+        AliasRgbFieldAsIntensity(&out);
         cloud_pub_->publish(out);
+      } else {
+        auto intensity_out = AddDefaultIntensityField(out);
+        if (!cloud_transform_with_latest_odom_ && rewrite_frame_id_) {
+          intensity_out.header.frame_id = world_frame_;
+        }
+        cloud_pub_->publish(intensity_out);
       }
       return;
     }
-    cloud_pub_->publish(*msg);
+    cloud_pub_->publish(out);
   }
 
   void ImuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -240,6 +374,7 @@ class OdinAutonomyBridge : public rclcpp::Node {
   std::string world_frame_;
   bool rewrite_frame_id_{true};
   bool alias_rgb_field_as_intensity_{true};
+  bool cloud_transform_with_latest_odom_{false};
   bool enable_odom_bridge_{true};
   bool enable_cloud_bridge_{true};
   bool enable_imu_bridge_{true};
@@ -255,6 +390,16 @@ class OdinAutonomyBridge : public rclcpp::Node {
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+
+  std::mutex latest_odom_mutex_;
+  bool latest_odom_available_{false};
+  double latest_odom_translation_x_{0.0};
+  double latest_odom_translation_y_{0.0};
+  double latest_odom_translation_z_{0.0};
+  double latest_odom_qx_{0.0};
+  double latest_odom_qy_{0.0};
+  double latest_odom_qz_{0.0};
+  double latest_odom_qw_{1.0};
 };
 
 int main(int argc, char **argv) {

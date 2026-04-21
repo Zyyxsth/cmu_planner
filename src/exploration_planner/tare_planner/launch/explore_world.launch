@@ -18,17 +18,28 @@ def generate_launch_description():
         default_value='indoor',
         description='Exploration scenario')
 
+    config_file_arg = DeclareLaunchArgument(
+        'config_file',
+        default_value='',
+        description='Optional explicit tare_planner yaml path')
+
     use_boundary_arg = DeclareLaunchArgument(
         'use_boundary',
         default_value='true',
         description='Use boundary for navigation')
+
+    boundary_file_arg = DeclareLaunchArgument(
+        'boundary_file',
+        default_value=get_package_share_directory('tare_planner') + '/boundary.ply',
+        description='Boundary PLY file for navigation boundary publisher')
 
     explore_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [get_package_share_directory('tare_planner'), '/explore.launch']),
         launch_arguments={
             'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'scenario': LaunchConfiguration('scenario')
+            'scenario': LaunchConfiguration('scenario'),
+            'config_file': LaunchConfiguration('config_file'),
         }.items())
 
     navigation_boundary_node = Node(
@@ -37,8 +48,7 @@ def generate_launch_description():
         name='navigationBoundary',
         output='screen',
         parameters=[
-            {'boundary_file_dir': get_package_share_directory(
-                'tare_planner') + '/boundary.ply'},
+            {'boundary_file_dir': LaunchConfiguration('boundary_file')},
             {'sendBoundary': True},
             {'sendBoundaryInterval': 2}
         ],
@@ -47,7 +57,9 @@ def generate_launch_description():
     return LaunchDescription([
         use_sim_time_arg,
         scenario_arg,
+        config_file_arg,
         use_boundary_arg,
+        boundary_file_arg,
         explore_launch,
         navigation_boundary_node,
     ])

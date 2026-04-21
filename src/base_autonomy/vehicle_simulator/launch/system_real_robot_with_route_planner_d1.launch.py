@@ -42,6 +42,9 @@ def generate_launch_description():
   autonomy_mode = LaunchConfiguration('autonomy_mode')
   autonomy_speed = LaunchConfiguration('autonomy_speed')
   startup_delay_sec = LaunchConfiguration('startup_delay_sec')
+  odin_base_frame = LaunchConfiguration('odin_base_frame')
+  planner_sensor_frame = LaunchConfiguration('planner_sensor_frame')
+  odin_cloud_topic = LaunchConfiguration('odin_cloud_topic')
 
   ld = LaunchDescription()
   for name, default in [
@@ -75,6 +78,9 @@ def generate_launch_description():
       ('autonomy_mode', 'false'),
       ('autonomy_speed', '0.3'),
       ('startup_delay_sec', '8.0'),
+      ('odin_base_frame', 'odin1_base_link'),
+      ('planner_sensor_frame', 'sensor'),
+      ('odin_cloud_topic', '/odin1/cloud_slam'),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
 
@@ -99,6 +105,18 @@ def generate_launch_description():
     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
     condition=IfCondition(start_odin_driver)))
 
+  # Real robot: attach the planner's synthetic sensor/vehicle tree to ODIN's
+  # live odometry tree. ODIN is mounted forward-facing with zero roll/pitch/yaw
+  # offset, so an identity transform is the safest first approximation.
+  ld.add_action(Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='odin_base_to_planner_sensor_tf',
+    output='screen',
+    arguments=['0', '0', '0', '0', '0', '0',
+               odin_base_frame, planner_sensor_frame],
+    condition=IfCondition(start_odin_driver)))
+
   ld.add_action(Node(
     package='joy',
     executable='joy_node',
@@ -118,6 +136,10 @@ def generate_launch_description():
   ld.add_action(IncludeLaunchDescription(
     PythonLaunchDescriptionSource([get_package_share_directory('odin_autonomy_bridge'),
                                    '/launch/odin_autonomy_bridge.launch.py']),
+    launch_arguments={
+      'input_cloud_topic': odin_cloud_topic,
+      'cloud_transform_with_latest_odom': 'false',
+    }.items(),
     condition=IfCondition(start_odin_driver)))
 
   ld.add_action(IncludeLaunchDescription(

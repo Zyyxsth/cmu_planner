@@ -1259,6 +1259,7 @@ int ViewPointManager::GetViewPointCandidate()
 nav_msgs::msg::Path ViewPointManager::GetViewPointShortestPath(int start_viewpoint_ind, int target_viewpoint_ind)
 {
   nav_msgs::msg::Path path;
+  path.header.frame_id = "map";
   if (!InRange(start_viewpoint_ind))
   {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("standalone_logger"),
@@ -1288,6 +1289,7 @@ nav_msgs::msg::Path ViewPointManager::GetViewPointShortestPath(int start_viewpoi
       int graph_idx = path_graph_indices[i];
       int ind = candidate_indices_[graph_idx];
       geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = path.header.frame_id;
       pose.pose.position = GetViewPointPosition(ind);
       path.poses.push_back(pose);
     }
@@ -1323,6 +1325,7 @@ bool ViewPointManager::GetViewPointShortestPathWithMaxLength(const Eigen::Vector
                                                              const Eigen::Vector3d& target_position,
                                                              double max_path_length, nav_msgs::msg::Path& path)
 {
+  path.header.frame_id = "map";
   if (!InLocalPlanningHorizon(start_position))
   {
     RCLCPP_WARN_STREAM(rclcpp::get_logger("standalone_logger"),
@@ -1355,6 +1358,7 @@ bool ViewPointManager::GetViewPointShortestPathWithMaxLength(const Eigen::Vector
       int graph_idx = path_graph_indices[i];
       int ind = candidate_indices_[graph_idx];
       geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = path.header.frame_id;
       pose.pose.position = GetViewPointPosition(ind);
       path.poses.push_back(pose);
     }
