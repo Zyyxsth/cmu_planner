@@ -232,6 +232,159 @@ cd /home/robot/cmu_planner
 
 如果只是想停上层，这一条就够了。
 
+## 固定地图与重定位流程
+
+如果你想要的是：
+
+- 地图保持固定不动
+- 机器人可以从场地内不同位置启动
+- 启动后仍然落在同一张全局地图里
+
+那就不要继续使用“每次启动重新定义本地 map”的方式，而是走下面这条链：
+
+1. 先用 ODIN 建一张固定地图
+2. 保存地图文件
+3. 停掉建图模式
+4. 用同一张地图启动 relocalization
+5. 在 relocalization 模式下再起探索
+
+### 1. 启动 ODIN 建图模式
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_odin_mapping_only.sh
+```
+
+启动后：
+
+- 用遥控器带机器人把场地主要区域扫一遍
+- 尽量形成一些回环
+- 重点把后续要探索的区域都扫进去
+
+这个脚本会临时把 ODIN 切到：
+
+- `custom_map_mode = 1`
+
+并在退出时自动恢复默认配置。
+
+### 2. 保存地图
+
+扫完之后，另开一个终端执行：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/save_odin_map.sh
+```
+
+当前人工建图默认保存到：
+
+- [src/odin_ros_driver/map/manual_maps](/home/robot/cmu_planner/src/odin_ros_driver/map/manual_maps)
+
+例如我们当前已经保存过一张：
+
+- [map_20260423_085941.bin](/home/robot/cmu_planner/src/odin_ros_driver/map/manual_maps/map_20260423_085941.bin)
+
+### 3. 停止建图模式
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/stop_odin_mapping_only.sh
+```
+
+### 4. 单独启动重定位模式
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_odin_relocalization_only.sh
+```
+
+如果要显式指定某张地图：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_odin_relocalization_only.sh \
+  --map-file /home/robot/cmu_planner/src/odin_ros_driver/map/manual_maps/map_20260423_085941.bin
+```
+
+这个脚本会把 ODIN 切到：
+
+- `custom_map_mode = 2`
+
+并把 `relocalization_map_abs_path` 指向指定地图文件。
+
+如果需要停止：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/stop_odin_relocalization_only.sh
+```
+
+### 5. 在重定位模式下启动探索
+
+如果你想直接验证“固定地图 + 探索”，用这条：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_relocalization.sh
+```
+
+如果要显式指定地图：
+
+```bash
+cd /home/robot/cmu_planner
+./scripts/start_d1_exploration_relocalization.sh \
+  --map-file /home/robot/cmu_planner/src/odin_ros_driver/map/manual_maps/map_20260423_085941.bin
+```
+
+这一条脚本做了几件关键事情：
+
+- 先清掉上一轮上层进程
+- 用 relocalization 模式启动 ODIN
+- 启动探索主链
+- **关闭 launch 里原来写死的静态 `map -> odom`**
+
+最后这一点很重要。因为如果还保留那个静态 `map -> odom = identity`，重定位结果会被顶掉，固定地图就没有意义了。
+
+### 6. 目前我们已经验证到什么程度
+
+当前这条固定地图链已经验证到：
+
+- relocalization 模式能够正常启动
+- 已保存地图能够成功加载
+- 真机探索链在 relocalization 模式下能够正常运行
+- `/state_estimation` 已经重新收敛成单一来源，避免了之前 `map/odom` 混发的问题
+
+这意味着：
+
+- 这套流程已经可以作为“固定地图模式”的基础使用
+
+但如果你要做更强的验证，仍然建议：
+
+- 多换几个起点重启几次
+- 看机器人是否总能落回同一张固定地图
+
+### 7. 这条链和普通探索启动的区别
+
+普通探索启动：
+
+- 每次启动时，`map` 基本跟着机器人初始位置重新建立
+
+重定位探索启动：
+
+- 先把机器人对到已保存地图
+- 再在这张固定地图里探索
+
+所以如果你的目标是：
+
+- 地图不动
+- 机器人换地方启动
+
+那后面请优先使用：
+
+```bash
+./scripts/start_d1_exploration_relocalization.sh
+```
+
 ## Weekly Update
 
 ### 2026-04-19

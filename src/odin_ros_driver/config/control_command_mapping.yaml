@@ -1,0 +1,38 @@
+register_keys:
+  strict_usb3.0_check: 0
+  use_host_ros_time: 2
+  streamctrl: 1
+
+  sendrgbcompressed: 0
+  sendrgb: 0
+  sendrgbundistort: 0
+
+  sendimu: 1
+  sendodom: 1
+  send_odom_baselink_tf: 1
+
+  senddtof: 1
+  cloud_raw_confidence_threshold: 35
+  dtof_fps: 100
+
+  sendcloudslam: 1
+  sendcloudrender: 0
+  senddepth: 0
+  sendreprojection: 0
+
+  recorddata: 0
+  devstatuslog: 0
+  showfps: 0
+  save_log: 0
+  pubintensitygray: 0
+  showpath: 0
+  showcamerapose: 0
+
+  # 1 = SLAM mapping mode. ODIN builds a map and supports save_map.
+  custom_map_mode: 1
+  custom_init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+  relocalization_map_abs_path: ""
+
+  # Maps will be saved here after calling ./scripts/save_odin_map.sh
+  mapping_result_dest_dir: "/home/robot/cmu_planner/src/odin_ros_driver/map/manual_maps"
+  mapping_result_file_name: ""

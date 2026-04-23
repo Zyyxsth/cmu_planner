@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource, FrontendLaunchDescriptionSource
+from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 
@@ -53,6 +54,7 @@ def generate_launch_description():
   odin_cloud_topic = LaunchConfiguration('odin_cloud_topic')
   exploration_boundary_file = LaunchConfiguration('exploration_boundary_file')
   exploration_planner_config_file = LaunchConfiguration('exploration_planner_config_file')
+  publish_static_map_to_odom_tf = LaunchConfiguration('publish_static_map_to_odom_tf')
 
   ld = LaunchDescription()
   for name, default in [
@@ -98,6 +100,7 @@ def generate_launch_description():
       ('exploration_boundary_file', os.path.join(
           get_package_share_directory('tare_planner'), 'boundary.ply')),
       ('exploration_planner_config_file', ''),
+      ('publish_static_map_to_odom_tf', 'true'),
   ]:
     ld.add_action(DeclareLaunchArgument(name, default_value=default, description=''))
 
@@ -164,7 +167,10 @@ def generate_launch_description():
     name='map_to_odom_tf',
     output='screen',
     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
-    condition=IfCondition(start_odin_driver)))
+    condition=IfCondition(PythonExpression([
+      "'", start_odin_driver, "' == 'true' and '",
+      publish_static_map_to_odom_tf, "' == 'true'"
+    ]))))
 
   ld.add_action(Node(
     package='tf2_ros',
@@ -222,7 +228,9 @@ def generate_launch_description():
       'input_imu_topic': d1_imu_topic,
       'input_fsm_topic': d1_fsm_topic,
       'input_motors_status_topic': d1_motors_status_topic,
+      'input_odom_topic': '',
       'output_fsm_topic': d1_key_topic,
+      'output_state_estimation_topic': '',
       'standup_key': d1_standup_key,
       'standdown_key': d1_standdown_key,
       'publish_twist_from_motion_cmd': 'false',
