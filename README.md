@@ -16,6 +16,7 @@ For the current D1H + ODIN real-robot stack, a Chinese parameter guide is availa
 
 - [docs/D1H_ODIN_PARAMETER_GUIDE_CN.md](/home/robot/cmu_planner/docs/D1H_ODIN_PARAMETER_GUIDE_CN.md)
 - [docs/TARE_EXPLORATION_GUIDE_CN.md](/home/robot/cmu_planner/docs/TARE_EXPLORATION_GUIDE_CN.md)
+- [docs/STAIR_2_5D_PLAN_CN.md](/home/robot/cmu_planner/docs/STAIR_2_5D_PLAN_CN.md)
 
 It summarizes the main robot / scene / sensor / obstacle / exploration parameters, what they mean, their current values, and when you would consider changing them.
 
@@ -570,6 +571,17 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - viewpoint / selected viewpoint visualization
     - uncovered cloud / frontier visualization
     - understanding why the planner chooses a given local path
+- 2.5D slope / stair planning needs a staged implementation plan.
+  - Current stack can handle some height-field terrain, but it does not yet explicitly distinguish:
+    - traversable slope
+    - non-traversable stair / step edge
+    - traversable stair for a stair-capable robot
+  - A dedicated staged plan now exists here:
+    - [docs/STAIR_2_5D_PLAN_CN.md](/home/robot/cmu_planner/docs/STAIR_2_5D_PLAN_CN.md)
+  - Implementation order should be:
+    - simulation-first
+    - then shadow-mode real robot validation
+    - then controlled real stair tests
 
 ### What is in charge
 
