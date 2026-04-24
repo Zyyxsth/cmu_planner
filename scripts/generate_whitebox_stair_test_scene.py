@@ -7,10 +7,11 @@ Outputs:
 - a sampled ASCII PLY point cloud map for ROS-side visualization/debug
 
 The scene contains:
-- a 12m x 12m floor
-- a 3m ramp that rises 0.45m
-- a single 0.10m step
-- a 6-step staircase with 0.10m rise and 0.28m tread depth
+- a 24m x 24m floor
+- multiple ramps with different rises
+- multiple single steps
+- multiple 6-step staircases with 0.10m rise and 0.28m tread depth
+- a minimal second-floor landing connected to one staircase
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,15 @@ class BoxSpec:
     y_max: float
     z_min: float
     z_max: float
+    terrain_kind: str = "box"
+    traversal_axis: Optional[tuple[float, float]] = None
+    entry_side: Optional[str] = None
+    group_name: Optional[str] = None
+    step_index: Optional[int] = None
+    step_count: Optional[int] = None
+    rise_m: Optional[float] = None
+    tread_m: Optional[float] = None
+    width_m: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,9 @@ class RampSpec:
     y_max: float
     z_min: float
     z_max: float
+    terrain_kind: str = "ramp"
+    traversal_axis: tuple[float, float] = (1.0, 0.0)
+    entry_side: str = "x_min"
 
 
 def frange(start: float, stop: float, step: float) -> list[float]:
@@ -104,7 +118,16 @@ def write_box(lines: list[str], vertex_offset: int, normal_offset: int, spec: Bo
     ]
 
     lines.append(f"o {spec.name}\n")
-    lines.append("usemtl floor\n" if spec.name == "floor" else "usemtl obstacle\n")
+    if spec.name == "floor":
+        lines.append("usemtl floor\n")
+    elif spec.terrain_kind == "floor_2":
+        lines.append("usemtl upper_floor\n")
+    elif spec.name.startswith("single_step"):
+        lines.append("usemtl step\n")
+    elif spec.name.startswith("stair_"):
+        lines.append("usemtl stair\n")
+    else:
+        lines.append("usemtl obstacle\n")
     for vertex in vertices:
         lines.append(format_vertex(vertex))
     normals = [compute_face_normal(vertices, face) for face in faces]
@@ -158,7 +181,7 @@ def write_ramp(
 
 
 def build_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
-    floor_half_extent = 16.0
+    floor_half_extent = 12.0
     boxes: list[BoxSpec] = [
         BoxSpec(
             name="floor",
@@ -168,51 +191,117 @@ def build_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
             y_max=floor_half_extent,
             z_min=-0.10,
             z_max=0.0,
+            terrain_kind="floor",
         ),
     ]
 
-    obstacle_layout = [
-        (-12.8, -10.8, -11.8, -10.2, 0.80),
-        (-9.8, -8.0, -7.5, -5.7, 0.95),
-        (-13.2, -11.6, -2.6, -0.8, 0.70),
-        (-10.4, -8.6, 1.2, 2.8, 1.10),
-        (-12.6, -10.4, 6.2, 8.0, 0.85),
-        (-9.0, -7.2, 10.0, 11.8, 0.65),
-        (-6.2, -4.4, -12.2, -10.4, 1.00),
-        (-3.0, -1.2, -8.2, -6.0, 0.75),
-        (-6.8, -4.8, -3.2, -1.6, 0.55),
-        (-6.0, -4.2, 2.4, 4.0, 1.15),
-        (-3.4, -1.4, 6.2, 8.4, 0.70),
-        (-6.4, -4.4, 10.4, 12.2, 0.90),
-        (1.6, 3.6, -11.8, -10.0, 0.75),
-        (4.8, 6.8, -8.0, -6.2, 1.05),
-        (1.4, 3.2, -3.0, -1.4, 0.60),
-        (5.4, 7.6, 1.8, 3.8, 1.20),
-        (1.2, 3.0, 6.4, 8.2, 0.85),
-        (4.6, 6.4, 10.2, 12.0, 0.70),
-        (9.2, 11.4, -12.0, -10.0, 0.95),
-        (11.8, 13.8, -7.4, -5.2, 0.60),
-        (8.8, 10.8, -2.8, -0.8, 1.10),
-        (11.2, 13.6, 1.0, 2.8, 0.75),
-        (8.6, 10.6, 6.0, 8.0, 0.90),
-        (11.0, 13.2, 10.0, 12.2, 1.00),
+    step_layout = [
+        ("single_step_10cm_north", -0.60, 0.60, 5.80, 7.00, 0.10),
+        ("single_step_10cm_east", 6.20, 7.40, -0.60, 0.60, 0.10),
+        ("single_step_15cm_west", -7.40, -6.20, -0.60, 0.60, 0.15),
+        ("single_step_08cm_southwest", -7.20, -6.00, -7.20, -6.00, 0.08),
     ]
-
-    obstacles: list[BoxSpec] = [
-        BoxSpec(
-            name=f"box_obstacle_{idx + 1:02d}",
-            x_min=x_min,
-            x_max=x_max,
-            y_min=y_min,
-            y_max=y_max,
-            z_min=0.0,
-            z_max=z_max,
+    for name, x_min, x_max, y_min, y_max, height in step_layout:
+        boxes.append(
+            BoxSpec(
+                name=name,
+                x_min=x_min,
+                x_max=x_max,
+                y_min=y_min,
+                y_max=y_max,
+                z_min=0.0,
+                z_max=height,
+                terrain_kind="single_step",
+            )
         )
-        for idx, (x_min, x_max, y_min, y_max, z_max) in enumerate(obstacle_layout)
-    ]
 
-    boxes.extend(obstacles)
-    ramps: list[RampSpec] = []
+    def add_staircase(name: str, start_x: float, y_min: float, yaw_sign: int = 1) -> None:
+        stair_tread = 0.28
+        stair_rise = 0.10
+        width = 1.20
+        traversal_axis = (float(yaw_sign), 0.0)
+        entry_side = "x_min" if yaw_sign > 0 else "x_max"
+        for idx in range(6):
+            x0 = start_x + yaw_sign * stair_tread * idx
+            x1 = start_x + yaw_sign * stair_tread * (idx + 1)
+            boxes.append(
+                BoxSpec(
+                    name=f"{name}_{idx + 1:02d}",
+                    x_min=min(x0, x1),
+                    x_max=max(x0, x1),
+                    y_min=y_min,
+                    y_max=y_min + width,
+                    z_min=0.0,
+                    z_max=stair_rise * (idx + 1),
+                    terrain_kind="stair_step",
+                    traversal_axis=traversal_axis,
+                    entry_side=entry_side,
+                    group_name=name,
+                    step_index=idx + 1,
+                    step_count=6,
+                    rise_m=stair_rise,
+                    tread_m=stair_tread,
+                    width_m=width,
+                )
+            )
+
+    add_staircase("stair_south_right", 2.20, -8.20, 1)
+    add_staircase("stair_north_left", -2.20, 8.00, -1)
+    add_staircase("stair_east_mid", 7.80, 3.80, 1)
+
+    boxes.append(
+        BoxSpec(
+            name="floor_2_south_landing",
+            x_min=3.88,
+            x_max=9.40,
+            y_min=-9.20,
+            y_max=-5.60,
+            z_min=0.55,
+            z_max=0.60,
+            terrain_kind="floor_2",
+            traversal_axis=(1.0, 0.0),
+            entry_side="x_min",
+        )
+    )
+
+    ramps: list[RampSpec] = [
+        RampSpec(
+            name="ramp_southwest_3m_45cm",
+            x_min=-10.40,
+            x_max=-7.40,
+            y_min=-8.40,
+            y_max=-7.20,
+            z_min=0.0,
+            z_max=0.45,
+        ),
+        RampSpec(
+            name="ramp_west_3m_25cm",
+            x_min=-10.40,
+            x_max=-7.40,
+            y_min=2.40,
+            y_max=3.60,
+            z_min=0.0,
+            z_max=0.25,
+        ),
+        RampSpec(
+            name="ramp_northeast_4m_45cm",
+            x_min=5.20,
+            x_max=9.20,
+            y_min=7.20,
+            y_max=8.40,
+            z_min=0.0,
+            z_max=0.45,
+        ),
+        RampSpec(
+            name="ramp_south_2m_18cm",
+            x_min=-1.00,
+            x_max=1.00,
+            y_min=-9.20,
+            y_max=-8.00,
+            z_min=0.0,
+            z_max=0.18,
+        ),
+    ]
     return boxes, ramps
 
 
@@ -278,6 +367,11 @@ def write_ascii_ply(points: list[tuple[float, float, float]], output_path: Path)
     output_path.write_text("".join(lines), encoding="ascii")
 
 
+def metadata_dict(spec: BoxSpec | RampSpec) -> dict[str, object]:
+    data = asdict(spec)
+    return {key: value for key, value in data.items() if value is not None}
+
+
 def write_map_ply(output_path: Path, step: float = 0.05) -> int:
     boxes, ramps = build_scene()
     points: set[tuple[float, float, float]] = set()
@@ -292,6 +386,14 @@ def write_map_ply(output_path: Path, step: float = 0.05) -> int:
 
 def write_obj(output_path: Path) -> dict[str, object]:
     boxes, ramps = build_scene()
+    step_count = len([spec for spec in boxes if spec.name.startswith("single_step_")])
+    staircase_count = len(
+        {
+            "_".join(spec.name.split("_")[:-1])
+            for spec in boxes
+            if spec.name.startswith("stair_")
+        }
+    )
     lines = [
         "# Minimal whitebox stair test scene for cmu_planner\n",
         "# Units: meters\n",
@@ -313,11 +415,29 @@ def write_obj(output_path: Path) -> dict[str, object]:
         "Ks 0.04 0.04 0.04\n",
         "Ns 12.0\n",
         "\n",
+        "newmtl upper_floor\n",
+        "Ka 0.52 0.68 0.74\n",
+        "Kd 0.52 0.68 0.74\n",
+        "Ks 0.05 0.05 0.05\n",
+        "Ns 14.0\n",
+        "\n",
         "newmtl obstacle\n",
         "Ka 0.78 0.28 0.18\n",
         "Kd 0.78 0.28 0.18\n",
         "Ks 0.08 0.08 0.08\n",
         "Ns 18.0\n",
+        "\n",
+        "newmtl step\n",
+        "Ka 0.24 0.48 0.84\n",
+        "Kd 0.24 0.48 0.84\n",
+        "Ks 0.10 0.10 0.10\n",
+        "Ns 20.0\n",
+        "\n",
+        "newmtl stair\n",
+        "Ka 0.20 0.66 0.44\n",
+        "Kd 0.20 0.66 0.44\n",
+        "Ks 0.10 0.10 0.10\n",
+        "Ns 20.0\n",
         "\n",
         "newmtl accent\n",
         "Ka 0.85 0.60 0.18\n",
@@ -328,14 +448,36 @@ def write_obj(output_path: Path) -> dict[str, object]:
     output_path.with_suffix(".mtl").write_text("".join(mtl_lines), encoding="ascii")
 
     metadata = {
-        "scene_type": "flat_obstacle_arena",
-        "floor_size_m": [32.0, 32.0],
-        "spawn_keepout_m": {
-            "x": [-4.0, 4.0],
-            "y": [-4.0, 4.0],
+        "scene_type": "whitebox_2_5d_terrain",
+        "floor_size_m": [24.0, 24.0],
+        "terrain_features": {
+            "floor_2": {
+                "count": len([spec for spec in boxes if spec.terrain_kind == "floor_2"]),
+                "height_m": 0.60,
+                "connected_by": "stair_south_right",
+            },
+            "ramp": {
+                "count": len(ramps),
+                "examples": [
+                    {"length_m": 3.0, "rise_m": 0.45, "width_m": 1.2},
+                    {"length_m": 3.0, "rise_m": 0.25, "width_m": 1.2},
+                    {"length_m": 4.0, "rise_m": 0.45, "width_m": 1.2},
+                ],
+            },
+            "single_step": {
+                "count": step_count,
+                "heights_m": [0.08, 0.10, 0.15],
+                "width_m": 1.2,
+            },
+            "stairs": {
+                "staircase_count": staircase_count,
+                "steps_per_staircase": 6,
+                "rise_m": 0.10,
+                "tread_m": 0.28,
+                "width_m": 1.2,
+            },
         },
-        "obstacle_count": len([spec for spec in boxes if spec.name.startswith("box_obstacle_")]),
-        "objects": [asdict(spec) for spec in boxes] + [asdict(spec) for spec in ramps],
+        "objects": [metadata_dict(spec) for spec in boxes] + [metadata_dict(spec) for spec in ramps],
     }
     metadata_path = output_path.with_suffix(".json")
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="ascii")
@@ -366,11 +508,17 @@ def main() -> None:
     print(f"Scene PLY map written to: {map_ply_path}")
     print("Summary:")
     print(f"  floor: {metadata['floor_size_m'][0]}m x {metadata['floor_size_m'][1]}m")
-    print(f"  obstacles: {metadata['obstacle_count']} fixed box obstacles")
     print(
-        "  spawn keepout: "
-        f"x in [{metadata['spawn_keepout_m']['x'][0]}, {metadata['spawn_keepout_m']['x'][1]}], "
-        f"y in [{metadata['spawn_keepout_m']['y'][0]}, {metadata['spawn_keepout_m']['y'][1]}]"
+        "  floor_2: "
+        f"{metadata['terrain_features']['floor_2']['count']} landing at "
+        f"{metadata['terrain_features']['floor_2']['height_m']}m"
+    )
+    print(f"  ramps: {metadata['terrain_features']['ramp']['count']} fixed ramps")
+    print(f"  single steps: {metadata['terrain_features']['single_step']['count']} fixed steps")
+    print(
+        "  staircases: "
+        f"{metadata['terrain_features']['stairs']['staircase_count']} x "
+        f"{metadata['terrain_features']['stairs']['steps_per_staircase']} steps"
     )
     print(f"  sampled map points: {point_count}")
 

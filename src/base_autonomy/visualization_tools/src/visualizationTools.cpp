@@ -92,6 +92,15 @@ FILE *metricFilePtr = NULL;
 FILE *trajFilePtr = NULL;
 FILE *pcdFilePtr = NULL;
 
+void rewriteInstallPathToSource(string & filePath)
+{
+  const string installToken = "/install/";
+  const size_t pos = filePath.find(installToken);
+  if (pos != string::npos) {
+    filePath.replace(pos, installToken.size(), "/src/base_autonomy/");
+  }
+}
+
 void odometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr odom)
 {
   systemTime = rclcpp::Time(odom->header.stamp).seconds();
@@ -272,11 +281,12 @@ int main(int argc, char** argv)
   nh->get_parameter("saveTraj", saveTraj);
   nh->get_parameter("savePcd", savePcd);
 
-  // No direct replacement present for $(find pkg) in ROS2. Edit file path.
-  mapFile.replace(mapFile.find("/install/"), 8, "/src/base_autonomy");
-  metricFile.replace(metricFile.find("/install/"), 8, "/src/base_autonomy");
-  trajFile.replace(trajFile.find("/install/"), 8, "/src/base_autonomy");
-  pcdFile.replace(pcdFile.find("/install/"), 8, "/src/base_autonomy");
+  // Keep the original ROS1-style source path workaround, but allow absolute
+  // paths passed by launch files for generated simulation assets.
+  rewriteInstallPathToSource(mapFile);
+  rewriteInstallPathToSource(metricFile);
+  rewriteInstallPathToSource(trajFile);
+  rewriteInstallPathToSource(pcdFile);
 
   auto subOdometry = nh->create_subscription<nav_msgs::msg::Odometry>("/state_estimation", 5, odometryHandler);
 

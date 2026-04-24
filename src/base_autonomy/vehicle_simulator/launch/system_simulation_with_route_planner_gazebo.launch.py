@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import shlex
@@ -256,57 +255,23 @@ def _load_d1_visuals(package_share):
   return "".join(visual_lines)
 
 
-def _load_scene_boxes(package_share):
-  metadata_path = os.path.join(
-      package_share, "mesh", "whitebox_stair_test", "whitebox_stair_test.json")
-  with open(metadata_path, "r", encoding="utf-8") as handle:
-    metadata = json.load(handle)
-
-  visual_lines = []
-  for obj in metadata["objects"]:
-    size_x = obj["x_max"] - obj["x_min"]
-    size_y = obj["y_max"] - obj["y_min"]
-    size_z = obj["z_max"] - obj["z_min"]
-    pose_x = (obj["x_min"] + obj["x_max"]) * 0.5
-    pose_y = (obj["y_min"] + obj["y_max"]) * 0.5
-    pose_z = (obj["z_min"] + obj["z_max"]) * 0.5
-
-    if obj["name"] == "floor":
-      ambient = "0.54 0.58 0.64 1"
-      diffuse = "0.54 0.58 0.64 1"
-      specular = "0.08 0.08 0.08 1"
-    else:
-      ambient = "0.82 0.28 0.18 1"
-      diffuse = "0.82 0.28 0.18 1"
-      specular = "0.12 0.12 0.12 1"
-
-    visual_lines.extend(
-        [
-            f'        <collision name="{obj["name"]}_collision">\n',
-            f"          <pose>{pose_x:.6f} {pose_y:.6f} {pose_z:.6f} 0 0 0</pose>\n",
-            "          <geometry>\n",
-            "            <box>\n",
-            f"              <size>{size_x:.6f} {size_y:.6f} {size_z:.6f}</size>\n",
-            "            </box>\n",
-            "          </geometry>\n",
-            "        </collision>\n",
-            f'        <visual name="{obj["name"]}_visual">\n',
-            f"          <pose>{pose_x:.6f} {pose_y:.6f} {pose_z:.6f} 0 0 0</pose>\n",
-            "          <geometry>\n",
-            "            <box>\n",
-            f"              <size>{size_x:.6f} {size_y:.6f} {size_z:.6f}</size>\n",
-            "            </box>\n",
-            "          </geometry>\n",
-            "          <material>\n",
-            f"            <ambient>{ambient}</ambient>\n",
-            f"            <diffuse>{diffuse}</diffuse>\n",
-            f"            <specular>{specular}</specular>\n",
-            "          </material>\n",
-            "          <visibility_flags>0x01</visibility_flags>\n",
-            "        </visual>\n",
-        ])
-
-  return "".join(visual_lines)
+def _load_scene_geometry(mesh_path):
+  return f"""        <collision name="whitebox_scene_collision">
+          <geometry>
+            <mesh>
+              <uri>file://{mesh_path}</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="whitebox_scene_visual">
+          <geometry>
+            <mesh>
+              <uri>file://{mesh_path}</uri>
+            </mesh>
+          </geometry>
+          <visibility_flags>0x01</visibility_flags>
+        </visual>
+"""
 
 
 def _write_world_file(context, *_args, **_kwargs):
@@ -314,9 +279,10 @@ def _write_world_file(context, *_args, **_kwargs):
   world_path = os.path.join(tempfile.gettempdir(), "cmu_planner_whitebox_gazebo.sdf")
   gui_config_path = os.path.join(tempfile.gettempdir(), "cmu_planner_whitebox_gazebo_gui.config")
   gui = LaunchConfiguration("gazebo_gui").perform(context)
+  scene_mesh_path = os.path.abspath(LaunchConfiguration("scene_mesh_path").perform(context))
   sensor_visualize = "true" if gui == "true" else "false"
   d1_visuals = _load_d1_visuals(package_share)
-  scene_boxes = _load_scene_boxes(package_share)
+  scene_geometry = _load_scene_geometry(scene_mesh_path)
 
   world_sdf = f"""<?xml version="1.0" ?>
 <sdf version="1.8">
@@ -341,7 +307,7 @@ def _write_world_file(context, *_args, **_kwargs):
     <model name="whitebox_scene">
       <static>true</static>
       <link name="scene_link">
-{scene_boxes.rstrip()}
+{scene_geometry.rstrip()}
       </link>
     </model>
 
@@ -493,6 +459,7 @@ def _write_world_file(context, *_args, **_kwargs):
 def generate_launch_description():
   route_planner_config = LaunchConfiguration("route_planner_config")
   world_name = LaunchConfiguration("world_name")
+  scene_map_path = LaunchConfiguration("scene_map_path")
   vehicle_height = LaunchConfiguration("vehicleHeight")
   camera_offset_z = LaunchConfiguration("cameraOffsetZ")
   vehicle_x = LaunchConfiguration("vehicleX")
@@ -560,7 +527,7 @@ def generate_launch_description():
   start_visualization_tools = IncludeLaunchDescription(
       FrontendLaunchDescriptionSource(
           os.path.join(get_package_share_directory("visualization_tools"), "launch", "visualization_tools.launch")),
-      launch_arguments={"world_name": world_name}.items(),
+      launch_arguments={"world_name": world_name, "mapFile": scene_map_path}.items(),
   )
 
   start_joy = Node(
@@ -610,6 +577,14 @@ def generate_launch_description():
       DeclareLaunchArgument("vehicleYaw", default_value="0.0", description=""),
       DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),
       DeclareLaunchArgument("gazebo_gui", default_value="true", description=""),
+      DeclareLaunchArgument(
+          "scene_mesh_path",
+          default_value="src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.obj",
+          description="Absolute or cwd-relative OBJ mesh path for the Gazebo whitebox scene."),
+      DeclareLaunchArgument(
+          "scene_map_path",
+          default_value="src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply",
+          description="Absolute or cwd-relative PLY map path for RViz /overall_map visualization."),
       SetParameter(name="use_sim_time", value=True),
       OpaqueFunction(function=_write_world_file),
       start_bridge,

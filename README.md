@@ -66,11 +66,13 @@ This is useful for checking topic rates or launch stability without the GUIs.
 
 ### Current Test World
 
-The current Gazebo test world is a fixed whitebox obstacle arena:
+The current Gazebo test world is a fixed 2.5D whitebox terrain scene:
 
-- `32m x 32m` flat floor
-- fixed, non-random box obstacles
-- clear center spawn area
+- `24m x 24m` flat floor
+- 4 fixed ramps with different lengths and rises
+- 4 fixed single steps with `0.08m`, `0.10m`, and `0.15m` heights
+- 3 fixed staircases, each with 6 steps of `0.10m` rise, `0.28m` tread, and `1.2m` width
+- 1 second-floor landing at `0.60m`, connected to `stair_south_right`
 - D1 visual model loaded from `src/D1`
 - lidar mounted at the ROS `sensor` frame so the generated cloud follows `/state_estimation`
 
@@ -82,9 +84,64 @@ python3 scripts/generate_whitebox_stair_test_scene.py
 
 The generated OBJ / PLY / JSON files live under `src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/` and are intentionally ignored by git. The launch wrapper regenerates them before starting Gazebo.
 
+The current navigation stack is not purely 2D, but it is also not a full 3D voxel planner. It uses 3D point-cloud input, projects it into XY terrain cells, estimates local elevation, and stores relative terrain height in point intensity for downstream obstacle and cost checks. This is the 2.5D layer that the ramp / step / stair scene is meant to expose before changing any stair-navigation policy.
+
+To first verify the generated global terrain geometry:
+
+```bash
+python3 scripts/analyze_whitebox_terrain_map.py \
+  --ply src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply
+```
+
+To inspect the live local 2.5D terrain expression numerically, run this while Gazebo is active:
+
+```bash
+python3 scripts/analyze_whitebox_terrain_map.py --topic /terrain_map
+```
+
+The script prints per-ramp, per-step, and per-stair statistics for point count, `z`, `intensity`, `terrain_class`, and direction fields. In topic mode, regions that are not inside the robot's current observed cloud are reported as `outside_current_cloud_xy`; drive or set goals near a feature before using its `/terrain_map` intensity statistics.
+
+Current debug classes are:
+
+- `flat`
+- `ramp_like_traversable`
+- `step_like`
+- `stair_like`
+- `obstacle_like`
+- `rough_or_uncertain`
+
+For the generated whitebox scene, classification uses the known region metadata as a validation prior plus measured height/intensity statistics. It is a debug label for verifying the 2.5D data path, not yet a production planner policy.
+
+Whitebox ramp and stair regions also include direction metadata:
+
+- `traversal_axis`: the low-to-high direction for ramps/stairs.
+- `entry_side`: the lower side where ascent should start.
+- `approach_alignment`: dot product between robot heading and `traversal_axis`.
+- `approach_class`: `front_ascent_aligned`, `reverse_or_descent_aligned`, `side_view_blocking`, or `oblique_uncertain`.
+- `stair_traversal_decision`: debug decision for stair traversal. Only `front_entry_candidate` should be considered traversable; `side_blocked` must be treated as a side obstacle.
+
+The current front-entry threshold is `approach_alignment >= 0.80`, roughly within 37 degrees of the stair ascent axis.
+
+To automate that live check, run the simulation and then run:
+
+```bash
+python3 scripts/probe_whitebox_terrain_topics.py
+```
+
+The probe script publishes RViz-equivalent goals on `/goal_point`, publishes a synthetic `/joy` autonomy-enable input, waits for `/state_estimation` to approach each fixed terrain probe, and saves `/registered_scan`, `/terrain_map`, and `/terrain_map_ext` statistics and terrain-class labels under `logs/whitebox_terrain_probe/<timestamp>/`.
+
+To specifically test the current one-floor-to-two-floor route:
+
+```bash
+python3 scripts/probe_whitebox_terrain_topics.py \
+  --probe two_floor_stair_preentry,two_floor_stair_lower,two_floor_stair_top,two_floor_goal
+```
+
+This uses normal `/goal_point` goals, not direct `/way_point` injection. The summary records final `/state_estimation` position, including `final_odom.z`, so it can distinguish a real height transition from merely reaching the same XY position.
+
 ### Current Scope
 
-This Gazebo path is currently for validating that the existing navigation stack still works after replacing Unity as the sensing backend. It does not yet implement stair-climbing policy, real wheel-leg contact physics, or Gazebo-driven odometry. If those are needed later, they should be handled as a separate dynamics / controller integration task.
+This Gazebo path is currently for validating that the existing navigation stack still works after replacing Unity as the sensing backend and for inspecting 2.5D terrain-map behavior. The two-floor whitebox route validates a kinematic stair transition through the existing `vehicleSimulator` and terrain-height adjustment path. It is not yet a real wheel-leg contact dynamics simulation or a production stair-climbing policy.
 
 ## Current Validated Real-Robot Workflow
 
