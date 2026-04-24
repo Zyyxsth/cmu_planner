@@ -228,6 +228,10 @@ void terrainCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr ter
 
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 {
+  if (joy->axes.size() <= 5)
+  {
+    return;
+  }
   joyTime = nh->now().seconds();
   joySpeedRaw = sqrt(joy->axes[3] * joy->axes[3] + joy->axes[4] * joy->axes[4]);
   joySpeed = joySpeedRaw;

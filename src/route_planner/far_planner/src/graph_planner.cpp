@@ -250,12 +250,49 @@ bool GraphPlanner::PathToGoal(const NavNodePtr& goal_ptr,
                 return true;
             }
             if (FARUtil::IsDebug) RCLCPP_ERROR(nh_->get_logger(), "****************** FAIL TO REACH GOAL ******************");
+            RCLCPP_WARN(
+                nh_->get_logger(),
+                "GP: path to goal failed; graph_size=%zu odom=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
+                "origin_goal=(%.3f, %.3f, %.3f) free_nav=%s command_free_nav=%s goal_traversable=%s "
+                "goal_free_traversable=%s goal_parent=%s goal_free_parent=%s goal_edges=%zu goal_in_freespace=%s",
+                current_graph_.size(),
+                odom_node_ptr_->position.x,
+                odom_node_ptr_->position.y,
+                odom_node_ptr_->position.z,
+                goal_ptr->position.x,
+                goal_ptr->position.y,
+                goal_ptr->position.z,
+                origin_goal_pos_.x,
+                origin_goal_pos_.y,
+                origin_goal_pos_.z,
+                is_free_nav_goal_ ? "true" : "false",
+                command_is_free_nav_ ? "true" : "false",
+                goal_ptr->is_traversable ? "true" : "false",
+                goal_ptr->is_free_traversable ? "true" : "false",
+                goal_ptr->parent == NULL ? "null" : "set",
+                goal_ptr->free_parent == NULL ? "null" : "set",
+                goal_ptr->connect_nodes.size(),
+                is_goal_in_freespace_ ? "true" : "false");
             this->GoalReset();
             is_goal_init_ = false, _is_fail = true;
             return false;
         }
     }
     if (FARUtil::IsDebug) RCLCPP_ERROR(nh_->get_logger(), "GP: unexpected error happend within planning, navigation to goal fails.");
+    RCLCPP_WARN(
+        nh_->get_logger(),
+        "GP: unexpected path failure; graph_size=%zu odom=(%.3f, %.3f, %.3f) goal=(%.3f, %.3f, %.3f) "
+        "goal_parent=%s goal_free_parent=%s goal_edges=%zu",
+        current_graph_.size(),
+        odom_node_ptr_->position.x,
+        odom_node_ptr_->position.y,
+        odom_node_ptr_->position.z,
+        goal_ptr->position.x,
+        goal_ptr->position.y,
+        goal_ptr->position.z,
+        goal_ptr->parent == NULL ? "null" : "set",
+        goal_ptr->free_parent == NULL ? "null" : "set",
+        goal_ptr->connect_nodes.size());
     this->GoalReset();
     is_goal_init_ = false, _is_fail = true;
     return false;

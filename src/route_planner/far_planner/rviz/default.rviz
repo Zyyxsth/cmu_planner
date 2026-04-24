@@ -154,11 +154,11 @@ Visualization Manager:
       Max Intensity: 0
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: SensorScan
+      Name: LidarPoints
       Position Transformer: XYZ
       Selectable: true
       Size (Pixels): 2
-      Size (m): 0.10000000149011612
+      Size (m): 0.035000000149011612
       Style: Points
       Topic:
         Depth: 5
@@ -166,10 +166,10 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /sensor_scan
+        Value: /lidar/points
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: false
       Autocompute Value Bounds:

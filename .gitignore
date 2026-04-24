@@ -27,6 +27,8 @@ src/base_autonomy/vehicle_simulator/mesh/unity/*
 
 src/base_autonomy/vehicle_simulator/log/*
 
+src/D1/usd/
+
 !readme.txt
 
 # Temporary files

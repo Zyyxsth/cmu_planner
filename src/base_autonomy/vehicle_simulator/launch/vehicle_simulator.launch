@@ -13,6 +13,7 @@ def declare_world_action(context, world_name):
   return [declare_world]
 
 def generate_launch_description():
+  useSimTime = LaunchConfiguration('useSimTime')
   vehicleHeight = LaunchConfiguration('vehicleHeight')
   vehicleX = LaunchConfiguration('vehicleX')
   vehicleY = LaunchConfiguration('vehicleY')
@@ -41,6 +42,7 @@ def generate_launch_description():
   sensorFrame = LaunchConfiguration('sensorFrame')
 
   declare_vehicleHeight = DeclareLaunchArgument('vehicleHeight', default_value='0.75', description='')
+  declare_useSimTime = DeclareLaunchArgument('useSimTime', default_value='false', description='')
   declare_vehicleX = DeclareLaunchArgument('vehicleX', default_value='0.0', description='')
   declare_vehicleY = DeclareLaunchArgument('vehicleY', default_value='0.0', description='')
   declare_vehicleZ = DeclareLaunchArgument('vehicleZ', default_value='0.0', description='')
@@ -72,6 +74,7 @@ def generate_launch_description():
     executable='vehicleSimulator',
     parameters=[
       {
+        'use_sim_time': useSimTime,
         'vehicleHeight': vehicleHeight,
         'vehicleX': vehicleX,
         'vehicleY': vehicleY,
@@ -111,6 +114,7 @@ def generate_launch_description():
   ld = LaunchDescription()
 
   # Add the actions
+  ld.add_action(declare_useSimTime)
   ld.add_action(declare_vehicleHeight)
   ld.add_action(declare_vehicleX)
   ld.add_action(declare_vehicleY)

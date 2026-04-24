@@ -34,6 +34,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(ros_gz_interfaces REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
@@ -43,14 +44,21 @@ find_package(cv_bridge REQUIRED)
 
 add_executable(sim_image_repub src/sim_image_repub.cpp)
 add_executable(vehicleSimulator src/vehicleSimulator.cpp)
+add_executable(registeredScanFromOdom src/registeredScanFromOdom.cpp)
+add_executable(poseStampedToGazeboSetPose src/poseStampedToGazeboSetPose.cpp)
 ament_target_dependencies(vehicleSimulator rclcpp std_msgs sensor_msgs nav_msgs geometry_msgs tf2 tf2_ros tf2_geometry_msgs message_filters pcl_ros pcl_conversions)
 ament_target_dependencies(sim_image_repub rclcpp std_msgs sensor_msgs cv_bridge)
+ament_target_dependencies(registeredScanFromOdom rclcpp sensor_msgs nav_msgs geometry_msgs tf2 tf2_geometry_msgs message_filters pcl_conversions pcl_ros)
+ament_target_dependencies(poseStampedToGazeboSetPose rclcpp geometry_msgs ros_gz_interfaces)
 target_link_libraries(vehicleSimulator ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 target_link_libraries(sim_image_repub ${OpenCV_LIBRARIES})
+target_link_libraries(registeredScanFromOdom ${PCL_LIBRARIES})
 
 install(TARGETS
   vehicleSimulator
   sim_image_repub
+  registeredScanFromOdom
+  poseStampedToGazeboSetPose
   DESTINATION lib/${PROJECT_NAME})
 
 install(
@@ -59,6 +67,7 @@ install(
   log
   mesh
   rviz
+  ../../D1
   DESTINATION share/${PROJECT_NAME}
 )
 

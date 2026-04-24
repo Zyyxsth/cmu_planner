@@ -197,6 +197,10 @@ void waypointHandler(const geometry_msgs::msg::PointStamped::ConstSharedPtr wayp
 
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 {
+  if (joy->axes.size() <= 5)
+  {
+    return;
+  }
   joyTime = nh->now().seconds(); 
   joySpeedRaw = sqrt(joy->axes[3] * joy->axes[3] + joy->axes[4] * joy->axes[4]);
   joySpeed = joySpeedRaw;

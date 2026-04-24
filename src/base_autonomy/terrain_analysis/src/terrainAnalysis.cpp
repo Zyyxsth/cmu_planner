@@ -184,6 +184,9 @@ void laserCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr laser
 
 // joystick callback function
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy) {
+  if (joy->buttons.size() <= 5) {
+    return;
+  }
   if (joy->buttons[5] > 0.5) {
     noDataInited = 0;
     clearingCloud = true;
