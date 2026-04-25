@@ -16,12 +16,13 @@
 
 脚本生成的几何固定为：
 
-- `24m x 24m` 平地
+- 默认 `realistic` 场景为 `36m x 36m` 平地
 - `4` 段固定缓坡，包含不同坡长和升高
 - `4` 个固定单台阶，高度包含 `0.08m`、`0.10m`、`0.15m`
-- `3` 段固定楼梯
-- 每段楼梯 `6` 级，每级高 `0.10m`、进深 `0.28m`、宽 `1.2m`
-- `1` 个二楼平台，高度 `0.60m`，接在 `stair_south_right` 楼梯顶部
+- `1` 个更真实的两跑楼梯，中间有休息平台
+- 楼梯总共 `20` 级，每级高 `0.15m`、进深 `0.28m`、宽 `1.2m`
+- 中间平台高度 `1.50m`
+- `1` 个二楼平台，高度 `3.00m`
 
 布局上，机器人默认从场地中心附近出发，坡道、台阶和楼梯分布在不同象限，避免一开始就穿模或压在地形上，也方便从多个方向观察 `/registered_scan`、`/terrain_map` 和 `/terrain_map_ext`。南侧楼梯额外连接一个二楼平台，用来测试“一楼目标”和“二楼目标”是否能通过同一套 `/goal_point` 接口连通。
 
@@ -30,7 +31,13 @@
 在仓库根目录执行：
 
 ```bash
-python3 scripts/generate_whitebox_stair_test_scene.py
+python3 scripts/generate_whitebox_stair_test_scene.py --profile realistic
+```
+
+如果需要回到旧的 `0.60m` 快速回归场景，可以用：
+
+```bash
+python3 scripts/generate_whitebox_stair_test_scene.py --profile compact
 ```
 
 默认会生成：
@@ -52,6 +59,18 @@ python3 scripts/generate_whitebox_stair_test_scene.py
 ```bash
 ./system_simulation_with_route_planner.sh --gazebo --no-rviz
 ```
+
+## RViz 中如何区分一楼目标和二楼目标
+
+同一个 XY 位置可能同时对应一楼和二楼，所以只靠鼠标点击的 `x/y` 不够。现在 `Goalpoint` 工具增加了 `Goal Z Mode` 属性：
+
+- `current`：旧行为，发布当前机器人 `/state_estimation.z`
+- `floor1`：发布 `z=0.75`，表示一楼车体/传感器高度
+- `floor2`：发布 `z=3.75`，表示 `3.0m` 二楼平台加 `vehicleHeight`
+- `custom`：使用 `Custom Goal Z`
+- 也可以直接在 `Goal Z Mode` 里填一个数字，例如 `1.50`
+
+因此，如果你想点同一个 XY 的一楼目标，把 `Goal Z Mode` 设成 `floor1`；如果想点同一个 XY 的二楼目标，把它设成 `floor2`。Gazebo 白盒 launch 默认使用 `whitebox_multilevel` FAR 配置，会保留 `/goal_point.z`，不会再把目标高度自动压回当前地面。
 
 ## 当前 2.5D 表达方式
 
@@ -78,6 +97,16 @@ python3 scripts/generate_whitebox_stair_test_scene.py
 - Gazebo 订阅 `/unity_sim/set_model_state` 并同步显示机器人模型
 - Gazebo lidar 发布 `/lidar/points`
 - `registeredScanFromOdom` 将 `/lidar/points` 按 `/state_estimation` 转成 `/registered_scan`
+- 白盒多楼层模式额外启动 `whitebox_stair_goal_router.py`：一楼普通目标继续走 `/routed_goal_point -> FAR`，二楼目标会被拆成分段路线。
+
+二楼目标当前分段为：
+
+- `TO_ENTRY`：先把楼梯入口前目标发给 FAR，由原来的 FAR / localPlanner / pathFollower 走过去。
+- `STAIR_EXEC`：只在楼梯 connector 段使用仿真专用 `/whitebox_vehicle_pose_override` 推进 `vehicleSimulator`。这个段对应以后要替换成 RL/楼梯底层控制器的位置。
+- `TO_FINAL`：到达楼梯顶后，把二楼平台内的短距离子目标依次发回 FAR，例如 `floor2_entry -> floor2_waypoint_* -> final_goal`。
+- `FLOOR2_EXEC_FALLBACK`：当前 FAR 在二楼平台内还会出现 `goal_traversable=false`，如果超时没有接上当前二楼子目标，router 会明确打印 warning，然后用临时 fallback 把剩余二楼平台段走完，避免白盒 demo 假死。
+
+所以现在不是“两个 vehicleSimulator”，也不是两个运动模型；仍然只有一个 `vehicleSimulator`。差别只是不同路线段选择不同控制输入：普通平地段用原始 `/cmd_vel`，楼梯/临时 fallback 段用 pose override。为了避免旧 FAR 目标残留造成抖动，router 在 `STAIR_EXEC` 和 `FLOOR2_EXEC_FALLBACK` 期间会持续发布 `/stop=2` 和零 `/cmd_vel`，等下一个 FAR 控制段开始时再发布 `/stop=0`。
 
 ## 建议验证顺序
 
@@ -187,10 +216,34 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 
 ```bash
 python3 scripts/probe_whitebox_terrain_topics.py \
-  --probe two_floor_stair_preentry,two_floor_stair_lower,two_floor_stair_top,two_floor_goal
+  --probe two_floor_goal \
+  --require-goal-z
 ```
 
-这条测试只发布正常 `/goal_point`，不会直接注入 `/way_point`。判断时不要只看 `status=reached`，还要看 `summary.json` 里的 `final_odom.z`：二楼平台目标附近应当从一楼高度上升到约 `1.30m`，对应二楼平台高度约 `0.55-0.60m` 加 `vehicleHeight`。
+这条测试只发布正常 `/goal_point`，不会直接注入 `/way_point`。加上 `--require-goal-z` 后，判断不会只看 XY 距离，还会要求 `/state_estimation.z` 接近 `goal.z + vehicleHeight`。真实二楼平台目标附近应当从一楼高度上升到约 `3.75m`，对应二楼平台高度 `3.00m` 加 `vehicleHeight`。
+
+注意：真实多楼层白盒场景里，一楼和二楼可能在 XY 上重叠。Gazebo lidar 和 planner-facing `/terrain_map` 仍然来自真实点云；但 `vehicleSimulator` 的高度跟随会单独订阅 `/whitebox_vehicle_terrain_map`。这个 topic 由 `scripts/publish_whitebox_vehicle_terrain_map.py` 根据生成的 metadata 发布，只用于 kinematic simulator 的当前楼层高度，避免 `vehicleSimulator` 在二楼 XY 下误选一楼高度。
+
+二楼目标现在由 `whitebox_stair_goal_router.py` 处理。它订阅正常 `/goal_point`，识别二楼高度目标后，按南侧楼梯的正面上楼方向生成 connector 序列，并在 connector 段通过 `/whitebox_vehicle_pose_override` 连续推进 `vehicleSimulator`。这不是轮足真实接触动力学，也不是最终 RL 策略；它的作用是先证明“二楼目标可以通过一个显式 2.5D 楼梯连接器连通”，并让 Gazebo/RViz/点云接口继续保持可观测。
+
+当前已验证的一次二楼 probe：
+
+```bash
+python3 scripts/probe_whitebox_terrain_topics.py \
+  --probe two_floor_goal \
+  --goal-timeout 180 \
+  --settle-time 1.0 \
+  --reach-radius 0.90 \
+  --require-goal-z
+```
+
+最新验证结果写入：
+
+```text
+logs/whitebox_terrain_probe/20260425_135214_segmented_floor2_stop_gate_goal/summary.json
+```
+
+该次结果为 `status=reached`，`final_odom_z=3.75m`，`expected_odom_z=3.75m`，`min_z_error=0.01m`。同时日志明确显示 `TO_FINAL` 阶段 FAR 对第一个二楼平台子目标 `floor2_entry` 报 `goal_traversable=false`，随后 router 切到 `FLOOR2_EXEC_FALLBACK`。这说明当前“接口和拓扑连通”已经通过，而且楼梯/兜底段不会再被旧 `/cmd_vel` 抖动干扰；下一步要做的是让 FAR 的 2.5D 图能原生接上二楼平台入口，最终去掉 fallback。
 
 如果不想发布合成 `/joy`，可以加 `--no-publish-joy`，但这通常只适合你已经手动打开 autonomy 的情况。
 
@@ -202,4 +255,4 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 - 对比 `/registered_scan`、`/terrain_map`、`/terrain_map_ext`
 - 再决定是否修改 `terrainAnalysis` / `terrainAnalysisExt` / `localPlanner`
 
-现在的二楼测试验证的是 `vehicleSimulator` 运动模型下的 2.5D 高度跟随和接口连通，不等价于 Gazebo 真实轮足接触动力学。后续如果要做真实上楼梯策略，还需要把 `stair_traversal_decision` 这类调试标签接入 planner / costmap，而不是只停留在统计脚本里。
+现在的严格二楼测试结果是：`two_floor_goal --require-goal-z` 可以到达，最终 `/state_estimation.z` 约为 `3.75m`，说明二楼目标不再只是 XY 投影假到达。下一步要把这个白盒 connector 从“已知场景脚本”提升为 planner 可用的数据结构：楼梯入口、通行方向、楼层 ID、连接边和切换到 RL stair policy 的触发条件。

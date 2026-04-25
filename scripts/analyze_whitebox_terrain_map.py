@@ -128,11 +128,13 @@ def load_regions(metadata_path: Path, margin: float, include_stair_groups: bool 
     stair_groups: dict[str, list[dict[str, object]]] = {}
     for obj in metadata["objects"]:
         name = obj["name"]
-        if name == "floor":
-            continue
         terrain_kind = str(obj.get("terrain_kind", ""))
+        if terrain_kind == "floor" or name == "floor":
+            continue
         if terrain_kind == "floor_2":
             kind = "floor_2"
+        elif terrain_kind == "mid_landing":
+            kind = "landing"
         elif terrain_kind == "ramp" or name.startswith("ramp_"):
             kind = "ramp"
         elif terrain_kind == "single_step" or name.startswith("single_step_"):
@@ -283,7 +285,7 @@ def classify_terrain_points(points: list[Point], region: Region | None = None) -
             return TerrainClassification("step_like", prior_reason)
         if region.kind == "staircase":
             return TerrainClassification("stair_like", prior_reason)
-        if region.kind == "floor_2":
+        if region.kind in {"floor_2", "landing"}:
             return TerrainClassification("flat", prior_reason)
 
     if z_span < 0.06 and intensity_p90 < 0.05 and profile_jump_max < 0.06:

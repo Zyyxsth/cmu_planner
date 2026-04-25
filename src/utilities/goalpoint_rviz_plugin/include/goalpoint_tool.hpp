@@ -14,6 +14,7 @@
 #include <rviz_default_plugins/tools/pose/pose_tool.hpp>
 
 #include <rviz_common/display_context.hpp>
+#include <rviz_common/properties/float_property.hpp>
 #include <rviz_common/properties/string_property.hpp>
 #include <rviz_common/tool.hpp>
 
@@ -23,6 +24,7 @@ class DisplayContext;
 namespace properties
 {
 class StringProperty;
+class FloatProperty;
 class QosProfileProperty;
 }  // namespace properties
 }  // namespace rviz_common
@@ -42,6 +44,7 @@ public:
 protected:
   void odomHandler(const nav_msgs::msg::Odometry::ConstSharedPtr odom);
   void onPoseSet(double x, double y, double theta) override;
+  virtual double resolveGoalZ() const;
 
 private Q_SLOTS:
   void updateTopic();
@@ -55,9 +58,23 @@ private:
   rclcpp::Clock::SharedPtr clock_;
   
   rviz_common::properties::StringProperty * topic_property_;
+  rviz_common::properties::StringProperty * goal_z_mode_property_;
+  rviz_common::properties::FloatProperty * custom_goal_z_property_;
   rviz_common::properties::QosProfileProperty * qos_profile_property_;
 
   rclcpp::QoS qos_profile_;
+};
+
+class GoalpointFloor2Tool : public GoalpointTool
+{
+  Q_OBJECT
+public:
+  GoalpointFloor2Tool();
+
+  void onInitialize() override;
+
+protected:
+  double resolveGoalZ() const override;
 };
 }
 

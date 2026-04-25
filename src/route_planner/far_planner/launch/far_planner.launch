@@ -13,6 +13,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
         DeclareLaunchArgument('config', default_value='indoor'),
+        DeclareLaunchArgument('goal_topic', default_value='/goal_point'),
 
         Node(
             package='far_planner',
@@ -28,6 +29,7 @@ def generate_launch_description():
                 '.yaml"'])
             ],
             remappings=[
+                ('/goal_point', LaunchConfiguration('goal_topic')),
                 ('/odom_world', '/state_estimation'),
                 ('/terrain_cloud', '/terrain_map_ext'),
                 ('/scan_cloud', '/terrain_map'),

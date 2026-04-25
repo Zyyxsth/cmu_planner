@@ -3,7 +3,14 @@
          type="goalpoint_rviz_plugin::GoalpointTool"
          base_class_type="rviz_common::Tool">
     <description>
-      A tool for sending goalpoints
+      Send a first-floor goalpoint
+    </description>
+  </class>
+  <class name="goalpoint_rviz_plugin/GoalpointFloor2Tool"
+         type="goalpoint_rviz_plugin::GoalpointFloor2Tool"
+         base_class_type="rviz_common::Tool">
+    <description>
+      Send a second-floor goalpoint
     </description>
   </class>
 </library>

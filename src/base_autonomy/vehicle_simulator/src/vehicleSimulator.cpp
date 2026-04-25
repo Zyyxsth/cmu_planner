@@ -17,6 +17,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/point_stamped.h>
 #include <geometry_msgs/msg/polygon_stamped.h>
 #include <sensor_msgs/msg/imu.h>
@@ -79,11 +80,16 @@ float vehicleSpeed = 0;
 float terrainZ = 0;
 float terrainRoll = 0;
 float terrainPitch = 0;
+int poseOverrideHoldTicks = 0;
 
 pcl::VoxelGrid<pcl::PointXYZI> terrainDwzFilter;
 
 void terrainCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr terrainCloud2)
 {
+  if (poseOverrideHoldTicks > 0)
+  {
+    return;
+  }
   if (!adjustZ && !adjustIncl)
   {
     return;
@@ -204,6 +210,27 @@ void speedHandler(const geometry_msgs::msg::TwistStamped::ConstSharedPtr speedIn
   vehicleYawRate = speedIn->twist.angular.z;
 }
 
+void poseOverrideHandler(const geometry_msgs::msg::PoseStamped::ConstSharedPtr poseIn)
+{
+  vehicleX = poseIn->pose.position.x;
+  vehicleY = poseIn->pose.position.y;
+  vehicleZ = poseIn->pose.position.z;
+  terrainZ = vehicleZ - vehicleHeight;
+
+  tf2::Quaternion quat;
+  tf2::fromMsg(poseIn->pose.orientation, quat);
+  double roll = 0.0;
+  double pitch = 0.0;
+  double yaw = 0.0;
+  tf2::Matrix3x3(quat).getRPY(roll, pitch, yaw);
+  vehicleYaw = yaw;
+  vehicleSpeed = 0.0;
+  vehicleYawRate = 0.0;
+  terrainRoll = 0.0;
+  terrainPitch = 0.0;
+  poseOverrideHoldTicks = 80;
+}
+
 int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
@@ -212,6 +239,7 @@ int main(int argc, char** argv)
   std::string cmdVelTopic = "/cmd_vel";
   std::string stateEstimationTopic = "/state_estimation";
   std::string modelStateTopic = "/unity_sim/set_model_state";
+  std::string poseOverrideTopic = "";
   std::string mapFrame = "map";
   std::string sensorFrame = "sensor";
 
@@ -240,6 +268,7 @@ int main(int argc, char** argv)
   nh->declare_parameter<std::string>("stateEstimationTopic",
                                      stateEstimationTopic);
   nh->declare_parameter<std::string>("modelStateTopic", modelStateTopic);
+  nh->declare_parameter<std::string>("poseOverrideTopic", poseOverrideTopic);
   nh->declare_parameter<std::string>("mapFrame", mapFrame);
   nh->declare_parameter<std::string>("sensorFrame", sensorFrame);
 
@@ -267,6 +296,7 @@ int main(int argc, char** argv)
   nh->get_parameter("cmdVelTopic", cmdVelTopic);
   nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
   nh->get_parameter("modelStateTopic", modelStateTopic);
+  nh->get_parameter("poseOverrideTopic", poseOverrideTopic);
   nh->get_parameter("mapFrame", mapFrame);
   nh->get_parameter("sensorFrame", sensorFrame);
 
@@ -275,6 +305,12 @@ int main(int argc, char** argv)
 
   auto subSpeed = nh->create_subscription<geometry_msgs::msg::TwistStamped>(
       cmdVelTopic, 5, speedHandler);
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subPoseOverride;
+  if (!poseOverrideTopic.empty())
+  {
+    subPoseOverride = nh->create_subscription<geometry_msgs::msg::PoseStamped>(
+        poseOverrideTopic, 5, poseOverrideHandler);
+  }
 
   auto pubVehicleOdom = nh->create_publisher<nav_msgs::msg::Odometry>(
       stateEstimationTopic, 5);
@@ -301,22 +337,33 @@ int main(int argc, char** argv)
   while (status)
   {
     rclcpp::spin_some(nh);
+    const bool poseOverrideActive = poseOverrideHoldTicks > 0;
+    if (poseOverrideActive)
+    {
+      poseOverrideHoldTicks--;
+      vehicleSpeed = 0.0;
+      vehicleYawRate = 0.0;
+    }
+
     float vehicleRecRoll = vehicleRoll;
     float vehicleRecPitch = vehiclePitch;
     float vehicleRecZ = vehicleZ;
 
     vehicleRoll = terrainRoll * cos(vehicleYaw) + terrainPitch * sin(vehicleYaw);
     vehiclePitch = -terrainRoll * sin(vehicleYaw) + terrainPitch * cos(vehicleYaw);
-    vehicleYaw += 0.005 * vehicleYawRate;
-    if (vehicleYaw > PI)
-      vehicleYaw -= 2 * PI;
-    else if (vehicleYaw < -PI)
-      vehicleYaw += 2 * PI;
+    if (!poseOverrideActive)
+    {
+      vehicleYaw += 0.005 * vehicleYawRate;
+      if (vehicleYaw > PI)
+        vehicleYaw -= 2 * PI;
+      else if (vehicleYaw < -PI)
+        vehicleYaw += 2 * PI;
 
-    vehicleX += 0.005 * cos(vehicleYaw) * vehicleSpeed +
-                0.005 * vehicleYawRate * (-sin(vehicleYaw) * sensorOffsetX - cos(vehicleYaw) * sensorOffsetY);
-    vehicleY += 0.005 * sin(vehicleYaw) * vehicleSpeed +
-                0.005 * vehicleYawRate * (cos(vehicleYaw) * sensorOffsetX - sin(vehicleYaw) * sensorOffsetY);
+      vehicleX += 0.005 * cos(vehicleYaw) * vehicleSpeed +
+                  0.005 * vehicleYawRate * (-sin(vehicleYaw) * sensorOffsetX - cos(vehicleYaw) * sensorOffsetY);
+      vehicleY += 0.005 * sin(vehicleYaw) * vehicleSpeed +
+                  0.005 * vehicleYawRate * (cos(vehicleYaw) * sensorOffsetX - sin(vehicleYaw) * sensorOffsetY);
+    }
     vehicleZ = terrainZ + vehicleHeight;
 
     odomTime = nh->now();

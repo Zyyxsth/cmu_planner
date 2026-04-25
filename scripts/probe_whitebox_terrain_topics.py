@@ -117,11 +117,67 @@ def default_probe_goals(objects: dict[str, dict[str, float]]) -> list[ProbeGoal]
         "stair_north_left": (-1.2, 8.6),
         "stair_east_mid": (6.8, 4.4),
     }
+    available_stair_groups = {
+        str(obj.get("group_name"))
+        for obj in objects.values()
+        if obj.get("terrain_kind") == "stair_step" and obj.get("group_name") is not None
+    }
     for name, (x, y) in stair_groups.items():
-        goals.append(ProbeGoal(f"{name}_entry", x, y, 0.0, "stair entry, not top-of-stair traversal"))
+        if name in available_stair_groups:
+            goals.append(ProbeGoal(f"{name}_entry", x, y, 0.0, "stair entry, not top-of-stair traversal"))
 
     floor_2 = objects.get("floor_2_south_landing")
-    if floor_2 is not None:
+    mid_landing = objects.get("mid_landing_realistic")
+    if floor_2 is not None and mid_landing is not None:
+        floor_2_x, floor_2_y = center(floor_2)
+        mid_x, mid_y = center(mid_landing)
+        goals.extend(
+            [
+                ProbeGoal(
+                    "two_floor_stair_preentry",
+                    -4.00,
+                    -1.80,
+                    0.0,
+                    "staging point aligned with the realistic lower stair flight",
+                ),
+                ProbeGoal(
+                    "two_floor_stair_lower",
+                    -2.00,
+                    -1.80,
+                    0.60,
+                    "front-entry probe on the lower realistic stair flight",
+                ),
+                ProbeGoal(
+                    "two_floor_mid_landing",
+                    mid_x,
+                    mid_y,
+                    float(mid_landing["z_max"]),
+                    "middle landing between the two stair flights",
+                ),
+                ProbeGoal(
+                    "two_floor_stair_upper",
+                    0.60,
+                    -0.50,
+                    1.65,
+                    "entry onto the upper realistic stair flight after the 90-degree turn",
+                ),
+                ProbeGoal(
+                    "two_floor_stair_top",
+                    0.60,
+                    1.75,
+                    float(floor_2["z_max"]),
+                    "top step before the realistic second-floor landing",
+                ),
+                ProbeGoal(
+                    "two_floor_goal",
+                    floor_2_x,
+                    floor_2_y,
+                    float(floor_2["z_max"]),
+                    "second-floor landing goal reached through the split realistic stair",
+                ),
+            ]
+        )
+    elif floor_2 is not None:
         goals.extend(
             [
                 ProbeGoal(
@@ -304,11 +360,18 @@ class WhiteboxProbeNode(Node):
                 return True
         return False
 
-    def run_probe(self, goal: ProbeGoal) -> tuple[str, float, Optional[dict[str, float]], list[TopicSample]]:
+    def goal_z_error(self, goal: ProbeGoal) -> Optional[float]:
+        if self.last_odom is None:
+            return None
+        expected_z = goal.z + self.args.vehicle_height
+        return abs(float(self.last_odom.pose.pose.position.z) - expected_z)
+
+    def run_probe(self, goal: ProbeGoal) -> tuple[str, float, Optional[float], Optional[dict[str, float]], list[TopicSample]]:
         start = time.monotonic()
         last_goal_publish = 0.0
         reached = False
         min_distance = math.inf
+        min_z_error: Optional[float] = None
 
         while rclpy.ok() and time.monotonic() - start < self.args.goal_timeout:
             now = time.monotonic()
@@ -320,7 +383,13 @@ class WhiteboxProbeNode(Node):
             rclpy.spin_once(self, timeout_sec=0.1)
             current_distance = distance_xy(self.last_odom, goal)
             min_distance = min(min_distance, current_distance)
-            if current_distance <= self.args.reach_radius:
+            z_error = self.goal_z_error(goal)
+            if z_error is not None:
+                min_z_error = z_error if min_z_error is None else min(min_z_error, z_error)
+            reached_z = True
+            if self.args.require_goal_z:
+                reached_z = z_error is not None and z_error <= self.args.z_tolerance
+            if current_distance <= self.args.reach_radius and reached_z:
                 reached = True
                 break
 
@@ -353,7 +422,7 @@ class WhiteboxProbeNode(Node):
             )
 
         status = "reached" if reached else "timeout"
-        return status, min_distance, odom_pose_dict(self.last_odom), samples
+        return status, min_distance, min_z_error, odom_pose_dict(self.last_odom), samples
 
 
 def write_outputs(
@@ -372,6 +441,8 @@ def write_outputs(
             "status",
             "min_distance",
             "final_odom_z",
+            "expected_odom_z",
+            "min_z_error",
             "topic",
             "frame_id",
             "stamp_sec",
@@ -389,6 +460,8 @@ def write_outputs(
             "status",
             "min_distance",
             "final_odom_z",
+            "expected_odom_z",
+            "min_z_error",
             "topic",
             "region_kind",
             "region",
@@ -430,6 +503,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goal-timeout", type=float, default=45.0)
     parser.add_argument("--settle-time", type=float, default=2.0)
     parser.add_argument("--goal-rate", type=float, default=2.0)
+    parser.add_argument("--vehicle-height", type=float, default=0.75)
+    parser.add_argument("--z-tolerance", type=float, default=0.35)
+    parser.add_argument("--require-goal-z", action="store_true", help="Require odom z to match goal.z + vehicle-height.")
     parser.add_argument("--output-dir", default="")
     return parser.parse_args()
 
@@ -459,6 +535,9 @@ def main() -> None:
             "joy_topic": args.joy_topic,
             "joy_forward_axis": args.joy_forward_axis,
             "odom_topic": args.odom_topic,
+            "vehicle_height": args.vehicle_height,
+            "require_goal_z": args.require_goal_z,
+            "z_tolerance": args.z_tolerance,
             "topics": args.topics,
             "output_dir": str(output_dir),
             "probes": [],
@@ -466,11 +545,14 @@ def main() -> None:
 
         for goal in goals:
             node.get_logger().info(f"Probe {goal.name}: goal=({goal.x:.2f}, {goal.y:.2f}, {goal.z:.2f}) {goal.note}")
-            status, min_distance, final_odom, samples = node.run_probe(goal)
+            status, min_distance, min_z_error, final_odom, samples = node.run_probe(goal)
             final_z = final_odom["z"] if final_odom is not None else None
+            expected_z = goal.z + args.vehicle_height
             final_z_text = f"{final_z:.2f}m" if final_z is not None else "n/a"
+            z_error_text = f"{min_z_error:.2f}m" if min_z_error is not None else "n/a"
             node.get_logger().info(
-                f"Probe {goal.name}: status={status}, min_distance={min_distance:.2f}m, final_odom_z={final_z_text}"
+                f"Probe {goal.name}: status={status}, min_distance={min_distance:.2f}m, "
+                f"final_odom_z={final_z_text}, expected_odom_z={expected_z:.2f}m, min_z_error={z_error_text}"
             )
             summary["probes"].append(
                 {
@@ -479,6 +561,8 @@ def main() -> None:
                     "note": goal.note,
                     "status": status,
                     "min_distance": min_distance,
+                    "expected_odom_z": expected_z,
+                    "min_z_error": min_z_error,
                     "final_odom": final_odom,
                 }
             )
@@ -490,11 +574,19 @@ def main() -> None:
                         "status": status,
                         "min_distance": min_distance,
                         "final_odom_z": final_z,
+                        "expected_odom_z": expected_z,
+                        "min_z_error": min_z_error,
                     }
                 )
                 overview_rows.append(overview)
                 for row in sample_region_rows(goal, sample, regions):
-                    row.update({"status": status, "min_distance": min_distance, "final_odom_z": final_z})
+                    row.update({
+                        "status": status,
+                        "min_distance": min_distance,
+                        "final_odom_z": final_z,
+                        "expected_odom_z": expected_z,
+                        "min_z_error": min_z_error,
+                    })
                     region_rows.append(row)
 
         write_outputs(output_dir, region_rows, overview_rows, summary)

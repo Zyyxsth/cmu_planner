@@ -6,12 +6,12 @@ Outputs:
 - a Unity-importable Wavefront OBJ mesh
 - a sampled ASCII PLY point cloud map for ROS-side visualization/debug
 
-The scene contains:
-- a 24m x 24m floor
+The default realistic scene contains:
+- a 36m x 36m floor
 - multiple ramps with different rises
 - multiple single steps
-- multiple 6-step staircases with 0.10m rise and 0.28m tread depth
-- a minimal second-floor landing connected to one staircase
+- a split two-flight staircase with a mid landing
+- a 3.0m second-floor landing connected by 20 x 0.15m steps
 """
 
 from __future__ import annotations
@@ -118,9 +118,9 @@ def write_box(lines: list[str], vertex_offset: int, normal_offset: int, spec: Bo
     ]
 
     lines.append(f"o {spec.name}\n")
-    if spec.name == "floor":
+    if spec.terrain_kind == "floor":
         lines.append("usemtl floor\n")
-    elif spec.terrain_kind == "floor_2":
+    elif spec.terrain_kind in {"floor_2", "mid_landing"}:
         lines.append("usemtl upper_floor\n")
     elif spec.name.startswith("single_step"):
         lines.append("usemtl step\n")
@@ -180,21 +180,93 @@ def write_ramp(
     return vertex_offset + len(vertices), normal_offset + len(normals)
 
 
-def build_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
-    floor_half_extent = 12.0
-    boxes: list[BoxSpec] = [
-        BoxSpec(
-            name="floor",
-            x_min=-floor_half_extent,
-            x_max=floor_half_extent,
-            y_min=-floor_half_extent,
-            y_max=floor_half_extent,
-            z_min=-0.10,
-            z_max=0.0,
-            terrain_kind="floor",
-        ),
-    ]
+def add_x_staircase(
+    boxes: list[BoxSpec],
+    name: str,
+    start_x: float,
+    y_min: float,
+    yaw_sign: int,
+    step_count: int,
+    stair_rise: float,
+    stair_tread: float,
+    width: float,
+    base_z: float = 0.0,
+    global_step_offset: int = 0,
+    total_step_count: Optional[int] = None,
+) -> None:
+    traversal_axis = (float(yaw_sign), 0.0)
+    entry_side = "x_min" if yaw_sign > 0 else "x_max"
+    total_steps = total_step_count or step_count
+    for idx in range(step_count):
+        x0 = start_x + yaw_sign * stair_tread * idx
+        x1 = start_x + yaw_sign * stair_tread * (idx + 1)
+        global_step_index = global_step_offset + idx + 1
+        boxes.append(
+            BoxSpec(
+                name=f"{name}_{idx + 1:02d}",
+                x_min=min(x0, x1),
+                x_max=max(x0, x1),
+                y_min=y_min,
+                y_max=y_min + width,
+                z_min=base_z,
+                z_max=base_z + stair_rise * (idx + 1),
+                terrain_kind="stair_step",
+                traversal_axis=traversal_axis,
+                entry_side=entry_side,
+                group_name=name,
+                step_index=global_step_index,
+                step_count=total_steps,
+                rise_m=stair_rise,
+                tread_m=stair_tread,
+                width_m=width,
+            )
+        )
 
+
+def add_y_staircase(
+    boxes: list[BoxSpec],
+    name: str,
+    x_min: float,
+    start_y: float,
+    yaw_sign: int,
+    step_count: int,
+    stair_rise: float,
+    stair_tread: float,
+    width: float,
+    base_z: float = 0.0,
+    global_step_offset: int = 0,
+    total_step_count: Optional[int] = None,
+) -> None:
+    traversal_axis = (0.0, float(yaw_sign))
+    entry_side = "y_min" if yaw_sign > 0 else "y_max"
+    total_steps = total_step_count or step_count
+    for idx in range(step_count):
+        y0 = start_y + yaw_sign * stair_tread * idx
+        y1 = start_y + yaw_sign * stair_tread * (idx + 1)
+        global_step_index = global_step_offset + idx + 1
+        boxes.append(
+            BoxSpec(
+                name=f"{name}_{idx + 1:02d}",
+                x_min=x_min,
+                x_max=x_min + width,
+                y_min=min(y0, y1),
+                y_max=max(y0, y1),
+                z_min=base_z,
+                z_max=base_z + stair_rise * (idx + 1),
+                terrain_kind="stair_step",
+                traversal_axis=traversal_axis,
+                entry_side=entry_side,
+                group_name=name,
+                step_index=global_step_index,
+                step_count=total_steps,
+                rise_m=stair_rise,
+                tread_m=stair_tread,
+                width_m=width,
+            )
+        )
+
+
+def add_compact_test_features(boxes: list[BoxSpec], include_debug_stairs: bool = True) -> None:
     step_layout = [
         ("single_step_10cm_north", -0.60, 0.60, 5.80, 7.00, 0.10),
         ("single_step_10cm_east", 6.20, 7.40, -0.60, 0.60, 0.10),
@@ -215,56 +287,29 @@ def build_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
             )
         )
 
-    def add_staircase(name: str, start_x: float, y_min: float, yaw_sign: int = 1) -> None:
-        stair_tread = 0.28
-        stair_rise = 0.10
-        width = 1.20
-        traversal_axis = (float(yaw_sign), 0.0)
-        entry_side = "x_min" if yaw_sign > 0 else "x_max"
-        for idx in range(6):
-            x0 = start_x + yaw_sign * stair_tread * idx
-            x1 = start_x + yaw_sign * stair_tread * (idx + 1)
-            boxes.append(
-                BoxSpec(
-                    name=f"{name}_{idx + 1:02d}",
-                    x_min=min(x0, x1),
-                    x_max=max(x0, x1),
-                    y_min=y_min,
-                    y_max=y_min + width,
-                    z_min=0.0,
-                    z_max=stair_rise * (idx + 1),
-                    terrain_kind="stair_step",
-                    traversal_axis=traversal_axis,
-                    entry_side=entry_side,
-                    group_name=name,
-                    step_index=idx + 1,
-                    step_count=6,
-                    rise_m=stair_rise,
-                    tread_m=stair_tread,
-                    width_m=width,
-                )
+    if include_debug_stairs:
+        add_x_staircase(boxes, "stair_south_right", 2.20, -8.20, 1, 6, 0.10, 0.28, 1.20)
+        add_x_staircase(boxes, "stair_north_left", -2.20, 8.00, -1, 6, 0.10, 0.28, 1.20)
+        add_x_staircase(boxes, "stair_east_mid", 7.80, 3.80, 1, 6, 0.10, 0.28, 1.20)
+
+        boxes.append(
+            BoxSpec(
+                name="floor_2_south_landing",
+                x_min=3.88,
+                x_max=9.40,
+                y_min=-9.20,
+                y_max=-5.60,
+                z_min=0.55,
+                z_max=0.60,
+                terrain_kind="floor_2",
+                traversal_axis=(1.0, 0.0),
+                entry_side="x_min",
             )
-
-    add_staircase("stair_south_right", 2.20, -8.20, 1)
-    add_staircase("stair_north_left", -2.20, 8.00, -1)
-    add_staircase("stair_east_mid", 7.80, 3.80, 1)
-
-    boxes.append(
-        BoxSpec(
-            name="floor_2_south_landing",
-            x_min=3.88,
-            x_max=9.40,
-            y_min=-9.20,
-            y_max=-5.60,
-            z_min=0.55,
-            z_max=0.60,
-            terrain_kind="floor_2",
-            traversal_axis=(1.0, 0.0),
-            entry_side="x_min",
         )
-    )
 
-    ramps: list[RampSpec] = [
+
+def build_common_ramps() -> list[RampSpec]:
+    return [
         RampSpec(
             name="ramp_southwest_3m_45cm",
             x_min=-10.40,
@@ -302,7 +347,206 @@ def build_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
             z_max=0.18,
         ),
     ]
-    return boxes, ramps
+
+
+def build_compact_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
+    floor_half_extent = 12.0
+    boxes: list[BoxSpec] = [
+        BoxSpec(
+            name="floor",
+            x_min=-floor_half_extent,
+            x_max=floor_half_extent,
+            y_min=-floor_half_extent,
+            y_max=floor_half_extent,
+            z_min=-0.10,
+            z_max=0.0,
+            terrain_kind="floor",
+        ),
+    ]
+    add_compact_test_features(boxes)
+    return boxes, build_common_ramps()
+
+
+def build_realistic_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
+    floor_half_extent = 18.0
+    floor_z_min = -0.10
+    floor_z_max = 0.0
+    floor_cut_x_min = -3.20
+    floor_cut_x_max = 8.00
+    floor_cut_y_min = -2.40
+    floor_cut_y_max = 9.00
+    boxes: list[BoxSpec] = [
+        BoxSpec(
+            name="floor_west",
+            x_min=-floor_half_extent,
+            x_max=floor_cut_x_min,
+            y_min=-floor_half_extent,
+            y_max=floor_half_extent,
+            z_min=floor_z_min,
+            z_max=floor_z_max,
+            terrain_kind="floor",
+        ),
+        BoxSpec(
+            name="floor_east",
+            x_min=floor_cut_x_max,
+            x_max=floor_half_extent,
+            y_min=-floor_half_extent,
+            y_max=floor_half_extent,
+            z_min=floor_z_min,
+            z_max=floor_z_max,
+            terrain_kind="floor",
+        ),
+        BoxSpec(
+            name="floor_south",
+            x_min=floor_cut_x_min,
+            x_max=floor_cut_x_max,
+            y_min=-floor_half_extent,
+            y_max=floor_cut_y_min,
+            z_min=floor_z_min,
+            z_max=floor_z_max,
+            terrain_kind="floor",
+        ),
+        BoxSpec(
+            name="floor_north",
+            x_min=floor_cut_x_min,
+            x_max=floor_cut_x_max,
+            y_min=floor_cut_y_max,
+            y_max=floor_half_extent,
+            z_min=floor_z_min,
+            z_max=floor_z_max,
+            terrain_kind="floor",
+        ),
+    ]
+    add_compact_test_features(boxes, include_debug_stairs=False)
+
+    stair_rise = 0.15
+    stair_tread = 0.28
+    stair_width = 1.20
+    run_steps = 10
+    total_steps = run_steps * 2
+    first_run_start_x = -3.20
+    first_run_y_min = -2.40
+    mid_landing_z = stair_rise * run_steps
+    second_floor_z = stair_rise * total_steps
+
+    add_x_staircase(
+        boxes,
+        "stair_realistic_lower",
+        first_run_start_x,
+        first_run_y_min,
+        1,
+        run_steps,
+        stair_rise,
+        stair_tread,
+        stair_width,
+        base_z=0.0,
+        global_step_offset=0,
+        total_step_count=total_steps,
+    )
+
+    first_run_top_x = first_run_start_x + stair_tread * run_steps
+    mid_landing_x_max = first_run_top_x + 1.60
+    mid_landing_y_max = -0.80
+    boxes.append(
+        BoxSpec(
+            name="mid_landing_realistic",
+            x_min=first_run_top_x,
+            x_max=mid_landing_x_max,
+            y_min=first_run_y_min,
+            y_max=mid_landing_y_max,
+            z_min=mid_landing_z - 0.05,
+            z_max=mid_landing_z,
+            terrain_kind="mid_landing",
+            traversal_axis=(0.0, 1.0),
+            entry_side="y_min",
+        )
+    )
+
+    second_run_x_min = mid_landing_x_max - stair_width
+    add_y_staircase(
+        boxes,
+        "stair_realistic_upper",
+        second_run_x_min,
+        mid_landing_y_max,
+        1,
+        run_steps,
+        stair_rise,
+        stair_tread,
+        stair_width,
+        base_z=mid_landing_z,
+        global_step_offset=run_steps,
+        total_step_count=total_steps,
+    )
+
+    second_run_top_y = mid_landing_y_max + stair_tread * run_steps
+    boxes.append(
+        BoxSpec(
+            name="floor_2_south_landing",
+            x_min=second_run_x_min,
+            x_max=8.00,
+            y_min=second_run_top_y,
+            y_max=9.00,
+            z_min=second_floor_z - 0.05,
+            z_max=second_floor_z,
+            terrain_kind="floor_2",
+            traversal_axis=(0.0, 1.0),
+            entry_side="y_min",
+        )
+    )
+
+    return boxes, build_common_ramps()
+
+
+def build_scene(profile: str = "realistic") -> tuple[list[BoxSpec], list[RampSpec]]:
+    if profile == "compact":
+        return build_compact_scene()
+    if profile == "realistic":
+        return build_realistic_scene()
+    raise ValueError(f"Unknown scene profile: {profile}")
+
+
+def scene_floor_size(profile: str) -> list[float]:
+    return [24.0, 24.0] if profile == "compact" else [36.0, 36.0]
+
+
+def scene_profile_summary(profile: str) -> dict[str, object]:
+    if profile == "compact":
+        return {
+            "name": "compact",
+            "floor_2_height_m": 0.60,
+            "staircase_type": "single-flight debug stair",
+            "realistic_stair": False,
+        }
+    return {
+        "name": "realistic",
+        "floor_2_height_m": 3.00,
+        "staircase_type": "split two-flight stair with mid landing",
+        "realistic_stair": True,
+        "rise_m": 0.15,
+        "tread_m": 0.28,
+        "steps_total": 20,
+        "steps_per_flight": 10,
+        "mid_landing_height_m": 1.50,
+    }
+
+
+def count_stair_groups(boxes: list[BoxSpec]) -> int:
+    return len({spec.group_name for spec in boxes if spec.terrain_kind == "stair_step" and spec.group_name})
+
+
+def max_stair_step_count(boxes: list[BoxSpec]) -> int:
+    return max((spec.step_count or 0 for spec in boxes if spec.terrain_kind == "stair_step"), default=0)
+
+
+def canonical_stair_params(boxes: list[BoxSpec]) -> dict[str, float]:
+    stair_specs = [spec for spec in boxes if spec.terrain_kind == "stair_step"]
+    if not stair_specs:
+        return {"rise_m": 0.0, "tread_m": 0.0, "width_m": 0.0}
+    return {
+        "rise_m": max(float(spec.rise_m or 0.0) for spec in stair_specs),
+        "tread_m": max(float(spec.tread_m or 0.0) for spec in stair_specs),
+        "width_m": max(float(spec.width_m or 0.0) for spec in stair_specs),
+    }
 
 
 def add_box_points(points: set[tuple[float, float, float]], spec: BoxSpec, step: float) -> None:
@@ -372,8 +616,8 @@ def metadata_dict(spec: BoxSpec | RampSpec) -> dict[str, object]:
     return {key: value for key, value in data.items() if value is not None}
 
 
-def write_map_ply(output_path: Path, step: float = 0.05) -> int:
-    boxes, ramps = build_scene()
+def write_map_ply(output_path: Path, step: float = 0.05, profile: str = "realistic") -> int:
+    boxes, ramps = build_scene(profile)
     points: set[tuple[float, float, float]] = set()
     for spec in boxes:
         add_box_points(points, spec, step)
@@ -384,16 +628,11 @@ def write_map_ply(output_path: Path, step: float = 0.05) -> int:
     return len(ordered_points)
 
 
-def write_obj(output_path: Path) -> dict[str, object]:
-    boxes, ramps = build_scene()
+def write_obj(output_path: Path, profile: str = "realistic") -> dict[str, object]:
+    boxes, ramps = build_scene(profile)
     step_count = len([spec for spec in boxes if spec.name.startswith("single_step_")])
-    staircase_count = len(
-        {
-            "_".join(spec.name.split("_")[:-1])
-            for spec in boxes
-            if spec.name.startswith("stair_")
-        }
-    )
+    floor_2_specs = [spec for spec in boxes if spec.terrain_kind == "floor_2"]
+    stair_params = canonical_stair_params(boxes)
     lines = [
         "# Minimal whitebox stair test scene for cmu_planner\n",
         "# Units: meters\n",
@@ -449,12 +688,14 @@ def write_obj(output_path: Path) -> dict[str, object]:
 
     metadata = {
         "scene_type": "whitebox_2_5d_terrain",
-        "floor_size_m": [24.0, 24.0],
+        "profile": profile,
+        "profile_summary": scene_profile_summary(profile),
+        "floor_size_m": scene_floor_size(profile),
         "terrain_features": {
             "floor_2": {
-                "count": len([spec for spec in boxes if spec.terrain_kind == "floor_2"]),
-                "height_m": 0.60,
-                "connected_by": "stair_south_right",
+                "count": len(floor_2_specs),
+                "height_m": max((float(spec.z_max) for spec in floor_2_specs), default=0.0),
+                "connected_by": "stair_realistic_upper" if profile == "realistic" else "stair_south_right",
             },
             "ramp": {
                 "count": len(ramps),
@@ -470,11 +711,16 @@ def write_obj(output_path: Path) -> dict[str, object]:
                 "width_m": 1.2,
             },
             "stairs": {
-                "staircase_count": staircase_count,
-                "steps_per_staircase": 6,
-                "rise_m": 0.10,
-                "tread_m": 0.28,
-                "width_m": 1.2,
+                "flight_count": count_stair_groups(boxes),
+                "staircase_count": count_stair_groups(boxes),
+                "total_steps": scene_profile_summary(profile).get("steps_total", max_stair_step_count(boxes)),
+                "steps_per_flight": scene_profile_summary(profile).get(
+                    "steps_per_flight", max_stair_step_count(boxes)
+                ),
+                "steps_per_staircase": max_stair_step_count(boxes),
+                "rise_m": stair_params["rise_m"],
+                "tread_m": stair_params["tread_m"],
+                "width_m": stair_params["width_m"],
             },
         },
         "objects": [metadata_dict(spec) for spec in boxes] + [metadata_dict(spec) for spec in ramps],
@@ -494,19 +740,26 @@ def parse_args() -> argparse.Namespace:
         default="src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.obj",
         help="Output OBJ path.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("realistic", "compact"),
+        default="realistic",
+        help="Scene profile. realistic is a 3m split stair; compact is the previous 0.6m debug scene.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     output_path = Path(args.output)
-    metadata = write_obj(output_path)
+    metadata = write_obj(output_path, args.profile)
     map_ply_path = output_path.with_name("map.ply")
-    point_count = write_map_ply(map_ply_path)
+    point_count = write_map_ply(map_ply_path, profile=args.profile)
     print(f"Scene OBJ written to: {output_path}")
     print(f"Scene metadata written to: {output_path.with_suffix('.json')}")
     print(f"Scene PLY map written to: {map_ply_path}")
     print("Summary:")
+    print(f"  profile: {metadata['profile']}")
     print(f"  floor: {metadata['floor_size_m'][0]}m x {metadata['floor_size_m'][1]}m")
     print(
         "  floor_2: "
@@ -516,10 +769,12 @@ def main() -> None:
     print(f"  ramps: {metadata['terrain_features']['ramp']['count']} fixed ramps")
     print(f"  single steps: {metadata['terrain_features']['single_step']['count']} fixed steps")
     print(
-        "  staircases: "
-        f"{metadata['terrain_features']['stairs']['staircase_count']} x "
-        f"{metadata['terrain_features']['stairs']['steps_per_staircase']} steps"
+        "  stair flights: "
+        f"{metadata['terrain_features']['stairs']['flight_count']} flights, "
+        f"{metadata['terrain_features']['stairs']['total_steps']} total steps"
     )
+    if metadata["profile"] == "realistic":
+        print("  realistic stair: 20 steps, 0.15m rise, 0.28m tread, mid landing at 1.5m")
     print(f"  sampled map points: {point_count}")
 
 

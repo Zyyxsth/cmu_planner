@@ -8,6 +8,7 @@ source ./source_workspace_setup.bash
 WHITEBOX_MODE=0
 GAZEBO_MODE=0
 NO_RVIZ=0
+SCENE_PROFILE="${WHITEBOX_SCENE_PROFILE:-realistic}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,15 +24,35 @@ while [[ $# -gt 0 ]]; do
       NO_RVIZ=1
       shift
       ;;
+    --scene-profile)
+      if [[ $# -lt 2 ]]; then
+        echo "--scene-profile requires one value: realistic or compact"
+        exit 1
+      fi
+      SCENE_PROFILE="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--gazebo] [--whitebox] [--no-rviz]"
+      echo "Usage: $0 [--gazebo] [--whitebox] [--no-rviz] [--scene-profile realistic|compact]"
       exit 1
       ;;
   esac
 done
 
+if [[ "$SCENE_PROFILE" != "realistic" && "$SCENE_PROFILE" != "compact" ]]; then
+  echo "Invalid scene profile: $SCENE_PROFILE"
+  echo "Expected: realistic or compact"
+  exit 1
+fi
+
 cleanup() {
+  if [[ -n "${WHITEBOX_TERRAIN_PID:-}" ]]; then
+    kill "$WHITEBOX_TERRAIN_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${WHITEBOX_GOAL_ROUTER_PID:-}" ]]; then
+    kill "$WHITEBOX_GOAL_ROUTER_PID" 2>/dev/null || true
+  fi
   if [[ -n "${STATIC_SCAN_PID:-}" ]]; then
     kill "$STATIC_SCAN_PID" 2>/dev/null || true
   fi
@@ -60,6 +81,8 @@ cleanup_stale_sim_processes() {
 
   kill_by_pattern "src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64"
   kill_by_pattern "scripts/publish_static_registered_scan.py"
+  kill_by_pattern "scripts/publish_whitebox_vehicle_terrain_map.py"
+  kill_by_pattern "scripts/whitebox_stair_goal_router.py"
   kill_by_pattern "system_simulation_with_route_planner_gazebo.launch.py"
   kill_by_pattern "system_simulation_with_route_planner_whitebox.launch.py"
   kill_by_pattern "system_simulation_with_route_planner.launch"
@@ -86,9 +109,16 @@ trap cleanup EXIT
 
 if [[ "$GAZEBO_MODE" -eq 1 ]]; then
   cleanup_stale_sim_processes
-  python3 scripts/generate_whitebox_stair_test_scene.py >/dev/null
+  python3 scripts/generate_whitebox_stair_test_scene.py --profile "$SCENE_PROFILE" >/dev/null
   SCENE_MESH_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.obj"
   SCENE_MAP_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply"
+  SCENE_METADATA_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.json"
+  python3 scripts/publish_whitebox_vehicle_terrain_map.py \
+    --metadata "$SCENE_METADATA_PATH" &
+  WHITEBOX_TERRAIN_PID=$!
+  python3 scripts/whitebox_stair_goal_router.py \
+    --metadata "$SCENE_METADATA_PATH" &
+  WHITEBOX_GOAL_ROUTER_PID=$!
   ros2 launch vehicle_simulator system_simulation_with_route_planner_gazebo.launch.py \
     world_name:=whitebox_stair_test \
     scene_mesh_path:="$SCENE_MESH_PATH" \
@@ -96,7 +126,7 @@ if [[ "$GAZEBO_MODE" -eq 1 ]]; then
     gazebo_gui:=$([[ "$NO_RVIZ" -eq 1 ]] && echo false || echo true) &
   LAUNCH_PID=$!
 elif [[ "$WHITEBOX_MODE" -eq 1 ]]; then
-  python3 scripts/generate_whitebox_stair_test_scene.py >/dev/null
+  python3 scripts/generate_whitebox_stair_test_scene.py --profile "$SCENE_PROFILE" >/dev/null
   python3 scripts/publish_static_registered_scan.py \
     --ply src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply &
   STATIC_SCAN_PID=$!

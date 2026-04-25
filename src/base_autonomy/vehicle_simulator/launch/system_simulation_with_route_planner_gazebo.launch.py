@@ -498,6 +498,8 @@ def generate_launch_description():
           "vehicleY": vehicle_y,
           "terrainZ": terrain_z,
           "vehicleYaw": vehicle_yaw,
+          "terrainMapTopic": "/whitebox_vehicle_terrain_map",
+          "poseOverrideTopic": "/whitebox_vehicle_pose_override",
       }.items(),
   )
 
@@ -541,7 +543,11 @@ def generate_launch_description():
   start_far_planner = IncludeLaunchDescription(
       PythonLaunchDescriptionSource(
           os.path.join(get_package_share_directory("far_planner"), "launch", "far_planner.launch")),
-      launch_arguments={"config": route_planner_config, "use_sim_time": "true"}.items(),
+      launch_arguments={
+          "config": route_planner_config,
+          "use_sim_time": "true",
+          "goal_topic": "/routed_goal_point",
+      }.items(),
   )
 
   start_bridge = Node(
@@ -567,12 +573,12 @@ def generate_launch_description():
   )
 
   return LaunchDescription([
-      DeclareLaunchArgument("route_planner_config", default_value="indoor", description=""),
+      DeclareLaunchArgument("route_planner_config", default_value="whitebox_multilevel", description=""),
       DeclareLaunchArgument("world_name", default_value="whitebox_stair_test", description=""),
       DeclareLaunchArgument("vehicleHeight", default_value="0.75", description=""),
       DeclareLaunchArgument("cameraOffsetZ", default_value="0.041", description=""),
-      DeclareLaunchArgument("vehicleX", default_value="0.0", description=""),
-      DeclareLaunchArgument("vehicleY", default_value="0.0", description=""),
+      DeclareLaunchArgument("vehicleX", default_value="-5.0", description=""),
+      DeclareLaunchArgument("vehicleY", default_value="-1.8", description=""),
       DeclareLaunchArgument("terrainZ", default_value="0.0", description=""),
       DeclareLaunchArgument("vehicleYaw", default_value="0.0", description=""),
       DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),

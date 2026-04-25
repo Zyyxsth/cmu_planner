@@ -533,6 +533,17 @@ Visualization Manager:
   Tools:
     - Class: rviz_default_plugins/MoveCamera
     - Class: goalpoint_rviz_plugin/GoalpointTool
+      Custom Goal Z: 0.75
+      Goal Z Mode: floor1
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: goalpoint
+    - Class: goalpoint_rviz_plugin/GoalpointFloor2Tool
+      Custom Goal Z: 3.75
+      Goal Z Mode: floor2
       Topic:
         Depth: 5
         Durability Policy: Volatile

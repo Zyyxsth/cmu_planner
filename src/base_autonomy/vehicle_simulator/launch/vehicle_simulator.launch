@@ -38,6 +38,7 @@ def generate_launch_description():
   cmdVelTopic = LaunchConfiguration('cmdVelTopic')
   stateEstimationTopic = LaunchConfiguration('stateEstimationTopic')
   modelStateTopic = LaunchConfiguration('modelStateTopic')
+  poseOverrideTopic = LaunchConfiguration('poseOverrideTopic')
   mapFrame = LaunchConfiguration('mapFrame')
   sensorFrame = LaunchConfiguration('sensorFrame')
 
@@ -66,6 +67,7 @@ def generate_launch_description():
   declare_cmdVelTopic = DeclareLaunchArgument('cmdVelTopic', default_value='/cmd_vel', description='')
   declare_stateEstimationTopic = DeclareLaunchArgument('stateEstimationTopic', default_value='/state_estimation', description='')
   declare_modelStateTopic = DeclareLaunchArgument('modelStateTopic', default_value='/unity_sim/set_model_state', description='')
+  declare_poseOverrideTopic = DeclareLaunchArgument('poseOverrideTopic', default_value='', description='')
   declare_mapFrame = DeclareLaunchArgument('mapFrame', default_value='map', description='')
   declare_sensorFrame = DeclareLaunchArgument('sensorFrame', default_value='sensor', description='')
 
@@ -97,6 +99,7 @@ def generate_launch_description():
         'cmdVelTopic': cmdVelTopic,
         'stateEstimationTopic': stateEstimationTopic,
         'modelStateTopic': modelStateTopic,
+        'poseOverrideTopic': poseOverrideTopic,
         'mapFrame': mapFrame,
         'sensorFrame': sensorFrame,
       }
@@ -139,6 +142,7 @@ def generate_launch_description():
   ld.add_action(declare_cmdVelTopic)
   ld.add_action(declare_stateEstimationTopic)
   ld.add_action(declare_modelStateTopic)
+  ld.add_action(declare_poseOverrideTopic)
   ld.add_action(declare_mapFrame)
   ld.add_action(declare_sensorFrame)
   ld.add_action(OpaqueFunction(function=declare_world_action, args=[world_name]))
