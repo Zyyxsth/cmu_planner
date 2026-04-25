@@ -33,7 +33,7 @@ The interface mapping is:
 - Gazebo receives `/unity_sim/set_model_state` and synchronizes the displayed D1 model pose
 - Gazebo publishes lidar data on `/lidar/points`
 - `registeredScanFromOdom` converts `/lidar/points` plus `/state_estimation` into the planner-facing `/registered_scan`
-- In the whitebox multi-level scene, `whitebox_stair_goal_router.py` consumes `/goal_point`; normal one-floor goals pass through to FAR on `/routed_goal_point`, while second-floor goals are routed through the known stair connector and a simulation-only `/whitebox_vehicle_pose_override`.
+- In the whitebox multi-level scene, `whitebox_stair_goal_router.py` consumes `/goal_point`; it compares the robot's current floor from `/state_estimation.z` with the requested goal floor from `/goal_point.z`. Same-floor goals pass through to FAR on `/routed_goal_point`; cross-floor goals are routed through the known stair connector and a simulation-only `/whitebox_vehicle_pose_override`.
 
 This means the route planner, local planner, waypoint follower, `/cmd_vel`, `/state_estimation`, and `/registered_scan` contracts remain aligned with the Unity simulation path. Gazebo is currently used as a visual and point-cloud backend, not as a wheel / leg contact dynamics simulator.
 
@@ -146,22 +146,22 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 
 This uses normal `/goal_point` goals, not direct `/way_point` injection. With `--require-goal-z`, the summary records `expected_odom_z` and `min_z_error`, so a second-floor target is only successful if `/state_estimation.z` reaches the requested floor height instead of merely reaching the same XY projection.
 
-For the multi-level realistic scene, Gazebo still provides the planner-facing lidar and terrain maps. Two whitebox-only helpers use the generated scene metadata: `/whitebox_vehicle_terrain_map` feeds `vehicleSimulator` an unambiguous current floor height, and `whitebox_stair_goal_router.py` routes second-floor goals through the known stair connector.
+For the multi-level realistic scene, Gazebo still provides the planner-facing lidar and terrain maps. Two whitebox-only helpers use the generated scene metadata: `/whitebox_vehicle_terrain_map` feeds `vehicleSimulator` an unambiguous current floor height, and `whitebox_stair_goal_router.py` routes only cross-floor goals through the known stair connector.
 
 The router is intentionally segmented:
 
-- `TO_ENTRY`: publish the stair pre-entry point to FAR on `/routed_goal_point`.
-- `STAIR_EXEC`: temporarily drive `/whitebox_vehicle_pose_override` across the known stair connector and onto `floor2_entry`. This is the placeholder for the future stair/RL controller.
-- `TO_FINAL`: publish short second-floor platform subgoals back to FAR after the robot is already on the second-floor surface.
-- `FLOOR2_EXEC_FALLBACK`: still exists as an explicit failure mode if FAR cannot connect an upstairs subgoal within the timeout, but it should not be used in the validated nominal two-floor probe.
+- Same-floor: publish the requested goal directly to FAR.
+- Floor 1 to floor 2: FAR drives to `stair_preentry`, `STAIR_EXEC` drives the known upward connector to `floor2_entry`, then FAR resumes on upstairs platform goals.
+- Floor 2 to floor 1: FAR drives to `floor2_entry`, `STAIR_EXEC` drives the same connector in reverse to `stair_preentry`, then FAR resumes on the downstairs final goal.
+- `POST_STAIR_EXEC_FALLBACK`: still exists as an explicit failure mode if FAR cannot connect a post-stair subgoal within the timeout, but it should not be used in the validated nominal two-floor probe.
 
-If the robot is already on the second floor, a new second-floor `Goalpoint` is passed directly to FAR instead of rebuilding the full stair route from the first-floor stair entry.
+This is based on odometry height, not on a hardcoded "second click" rule. For example, when `/state_estimation.z` is near the second-floor odom height and RViz publishes a `floor1` goal, the router plans a downward route through the stair connector; when the robot is already on the target floor, the goal is passed directly to FAR.
 
-While `STAIR_EXEC` or `FLOOR2_EXEC_FALLBACK` is active, the router also publishes `/stop=2` and zero `/cmd_vel` so the original `pathFollower` does not keep driving a stale FAR waypoint during the simulated stair-controller segment. The next FAR-controlled segment releases `/stop=0`.
+While `STAIR_EXEC` or `POST_STAIR_EXEC_FALLBACK` is active, the router also publishes `/stop=2` and zero `/cmd_vel` so the original `pathFollower` does not keep driving a stale FAR waypoint during the simulated stair-controller segment. The next FAR-controlled segment releases `/stop=0`.
 
 ### Current Scope
 
-This Gazebo path is currently for validating that the existing navigation stack still works after replacing Unity as the sensing backend and for inspecting 2.5D terrain-map behavior. The current whitebox second-floor probe reaches the upstairs target through a known stair connector, then returns control to FAR for the second-floor platform segment.
+This Gazebo path is currently for validating that the existing navigation stack still works after replacing Unity as the sensing backend and for inspecting 2.5D terrain-map behavior. The current whitebox cross-floor path reaches the upstairs target through a known stair connector, then returns control to FAR for same-floor platform travel.
 
 Validated probe run: `logs/whitebox_terrain_probe/20260425_141035_tight_stair_exit/summary.json` reached the second-floor goal with `final_odom_z=3.75m`, `expected_odom_z=3.75m`, and `min_z_error=0.00m`. The key routing fix is that `floor2_entry` is treated as the last stair-controller handoff point with a tight exit radius before FAR resumes on the upstairs platform.
 

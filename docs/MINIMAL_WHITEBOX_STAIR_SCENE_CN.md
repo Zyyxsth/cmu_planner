@@ -97,18 +97,18 @@ python3 scripts/generate_whitebox_stair_test_scene.py --profile compact
 - Gazebo 订阅 `/unity_sim/set_model_state` 并同步显示机器人模型
 - Gazebo lidar 发布 `/lidar/points`
 - `registeredScanFromOdom` 将 `/lidar/points` 按 `/state_estimation` 转成 `/registered_scan`
-- 白盒多楼层模式额外启动 `whitebox_stair_goal_router.py`：一楼普通目标继续走 `/routed_goal_point -> FAR`，二楼目标会被拆成分段路线。
+- 白盒多楼层模式额外启动 `whitebox_stair_goal_router.py`：它用当前 `/state_estimation.z` 判断机器人所在楼层，用 `/goal_point.z` 判断目标楼层。同楼层目标继续走 `/routed_goal_point -> FAR`；跨楼层目标才会被拆成楼梯 connector 分段路线。
 
-二楼目标当前分段为：
+跨楼层目标当前分段为：
 
-- `TO_ENTRY`：先把楼梯入口前目标发给 FAR，由原来的 FAR / localPlanner / pathFollower 走过去。
-- `STAIR_EXEC`：只在楼梯 connector 段使用仿真专用 `/whitebox_vehicle_pose_override` 推进 `vehicleSimulator`。这个段对应以后要替换成 RL/楼梯底层控制器的位置。
-- `TO_FINAL`：到达楼梯顶并进入 `floor2_entry` 后，把二楼平台内的短距离子目标依次发回 FAR。
-- `FLOOR2_EXEC_FALLBACK`：如果 FAR 超时没有接上当前二楼子目标，router 会明确打印 warning，然后用临时 fallback 把剩余二楼平台段走完，避免白盒 demo 假死。正常验证路径不应该进入这个状态。
+- 同楼层：直接把用户点击的目标发给 FAR，不走楼梯 connector。
+- 一楼到二楼：`TO_ENTRY` 先把 `stair_preentry` 发给 FAR；`STAIR_EXEC` 用仿真专用 `/whitebox_vehicle_pose_override` 沿正向楼梯 connector 推进到 `floor2_entry`；`TO_FINAL` 再把二楼平台内目标发回 FAR。
+- 二楼到一楼：`TO_ENTRY` 先把 `floor2_entry` 发给 FAR；`STAIR_EXEC` 沿同一条楼梯 connector 反向推进到 `stair_preentry`；`TO_FINAL` 再把一楼最终目标发回 FAR。
+- `POST_STAIR_EXEC_FALLBACK`：如果 FAR 超时没有接上当前楼梯后的子目标，router 会明确打印 warning，然后用临时 fallback 把剩余段走完，避免白盒 demo 假死。正常验证路径不应该进入这个状态。
 
-如果机器人当前 `/state_estimation.z` 已经在二楼高度附近，再次点击二楼 `Goalpoint` 时不会重新走 `TO_ENTRY -> STAIR_EXEC`，而是直接把新的二楼目标透传给 FAR。这样在二楼连续点多个目标时，不会回到一楼楼梯入口。
+所以这不是“第二次点击就回起点”的规则，也不是固定只服务二楼目标。router 先看当前 odom 高度属于一楼还是二楼，再看目标高度是一楼还是二楼：`1->2` 上楼，`2->1` 下楼，`1->1` 和 `2->2` 都直接透传给 FAR。这样在二楼连续点多个二楼目标时不会回到一楼；如果想从二楼回一楼，需要把 RViz `Goal Z Mode` 设成 `floor1` 后再点击一楼目标。
 
-所以现在不是“两个 vehicleSimulator”，也不是两个运动模型；仍然只有一个 `vehicleSimulator`。差别只是不同路线段选择不同控制输入：普通平地段用原始 `/cmd_vel`，楼梯/失败 fallback 段用 pose override。为了避免旧 FAR 目标残留造成抖动，router 在 `STAIR_EXEC` 和 `FLOOR2_EXEC_FALLBACK` 期间会持续发布 `/stop=2` 和零 `/cmd_vel`，等下一个 FAR 控制段开始时再发布 `/stop=0`。
+所以现在不是“两个 vehicleSimulator”，也不是两个运动模型；仍然只有一个 `vehicleSimulator`。差别只是不同路线段选择不同控制输入：普通平地段用原始 `/cmd_vel`，楼梯/失败 fallback 段用 pose override。为了避免旧 FAR 目标残留造成抖动，router 在 `STAIR_EXEC` 和 `POST_STAIR_EXEC_FALLBACK` 期间会持续发布 `/stop=2` 和零 `/cmd_vel`，等下一个 FAR 控制段开始时再发布 `/stop=0`。
 
 ## 建议验证顺序
 
@@ -226,7 +226,7 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 
 注意：真实多楼层白盒场景里，一楼和二楼可能在 XY 上重叠。Gazebo lidar 和 planner-facing `/terrain_map` 仍然来自真实点云；但 `vehicleSimulator` 的高度跟随会单独订阅 `/whitebox_vehicle_terrain_map`。这个 topic 由 `scripts/publish_whitebox_vehicle_terrain_map.py` 根据生成的 metadata 发布，只用于 kinematic simulator 的当前楼层高度，避免 `vehicleSimulator` 在二楼 XY 下误选一楼高度。
 
-二楼目标现在由 `whitebox_stair_goal_router.py` 处理。它订阅正常 `/goal_point`，识别二楼高度目标后，按南侧楼梯的正面上楼方向生成 connector 序列，并在 connector 段通过 `/whitebox_vehicle_pose_override` 连续推进 `vehicleSimulator`。这不是轮足真实接触动力学，也不是最终 RL 策略；它的作用是先证明“二楼目标可以通过一个显式 2.5D 楼梯连接器连通”，并让 Gazebo/RViz/点云接口继续保持可观测。
+跨楼层目标现在由 `whitebox_stair_goal_router.py` 处理。它订阅正常 `/goal_point`，用当前 odom 楼层和目标高度楼层决定是否需要楼梯 connector：一楼到二楼走正向 connector，二楼到一楼走反向 connector。同楼层目标不拆段，直接交给 FAR。connector 段通过 `/whitebox_vehicle_pose_override` 连续推进 `vehicleSimulator`。这不是轮足真实接触动力学，也不是最终 RL 策略；它的作用是先证明“一楼目标和二楼目标可以通过一个显式 2.5D 楼梯连接器连通”，并让 Gazebo/RViz/点云接口继续保持可观测。
 
 当前已验证的一次二楼 probe：
 
@@ -245,7 +245,7 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 logs/whitebox_terrain_probe/20260425_135214_segmented_floor2_stop_gate_goal/summary.json
 ```
 
-该次结果为 `status=reached`，`final_odom_z=3.75m`，`expected_odom_z=3.75m`，`min_z_error=0.01m`。同时日志明确显示 `TO_FINAL` 阶段 FAR 对第一个二楼平台子目标 `floor2_entry` 报 `goal_traversable=false`，随后 router 切到 `FLOOR2_EXEC_FALLBACK`。这说明当前“接口和拓扑连通”已经通过，而且楼梯/兜底段不会再被旧 `/cmd_vel` 抖动干扰；下一步要做的是让 FAR 的 2.5D 图能原生接上二楼平台入口，最终去掉 fallback。
+该次结果为 `status=reached`，`final_odom_z=3.75m`，`expected_odom_z=3.75m`，`min_z_error=0.01m`。同时日志明确显示 `TO_FINAL` 阶段 FAR 对第一个二楼平台子目标 `floor2_entry` 报 `goal_traversable=false`，随后 router 切到当时名为 `FLOOR2_EXEC_FALLBACK` 的兜底段；这个状态现在已改名为 `POST_STAIR_EXEC_FALLBACK`，避免误解为只服务二楼。该结果说明当前“接口和拓扑连通”已经通过，而且楼梯/兜底段不会再被旧 `/cmd_vel` 抖动干扰；下一步要做的是让 FAR 的 2.5D 图能原生接上二楼平台入口，最终去掉 fallback。
 
 如果不想发布合成 `/joy`，可以加 `--no-publish-joy`，但这通常只适合你已经手动打开 autonomy 的情况。
 

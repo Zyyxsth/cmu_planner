@@ -39,7 +39,7 @@ STATE_PASSTHROUGH = "PASSTHROUGH"
 STATE_TO_ENTRY = "TO_ENTRY"
 STATE_STAIR_EXEC = "STAIR_EXEC"
 STATE_TO_FINAL = "TO_FINAL"
-STATE_FLOOR2_EXEC_FALLBACK = "FLOOR2_EXEC_FALLBACK"
+STATE_POST_STAIR_EXEC_FALLBACK = "POST_STAIR_EXEC_FALLBACK"
 
 
 def center(obj: dict[str, object]) -> tuple[float, float]:
@@ -86,26 +86,12 @@ class WhiteboxStairRoute:
             return raw_z - self.vehicle_height
         return raw_z
 
-    def build_second_floor_route(self, final_goal: PointStamped) -> list[RoutedGoal]:
-        if not self.has_realistic_stair():
-            return [RoutedGoal("final", final_goal.point.x, final_goal.point.y, final_goal.point.z)]
+    def stair_preentry_goal(self) -> RoutedGoal:
+        return RoutedGoal("stair_preentry", -4.0, -1.8, 0.0)
 
-        goals = [RoutedGoal("stair_preentry", -4.0, -1.8, 0.0)]
-        goals.extend(self._step_goals(self.lower_steps))
-
-        assert self.mid_landing is not None
-        x, y = center(self.mid_landing)
-        goals.append(RoutedGoal("mid_landing_realistic", x, y, float(self.mid_landing["z_max"])))
-
-        goals.extend(self._step_goals(self.upper_steps))
-
-        final_z = self.surface_goal_z(float(final_goal.point.z))
-        goals.append(RoutedGoal("final_goal", float(final_goal.point.x), float(final_goal.point.y), final_z))
-        return goals
-
-    def build_floor2_far_route(self, final_goal: RoutedGoal, spacing: float) -> list[RoutedGoal]:
+    def floor2_entry_goal(self) -> RoutedGoal:
         if self.floor2 is None or not self.upper_steps:
-            return [final_goal]
+            return RoutedGoal("floor2_entry", 0.0, 0.0, 0.0)
 
         top_x, top_y = center(self.upper_steps[-1])
         floor_x_min = float(self.floor2["x_min"])
@@ -116,10 +102,49 @@ class WhiteboxStairRoute:
 
         start_x = max(floor_x_min + 0.6, min(floor_x_max - 0.6, top_x))
         start_y = max(floor_y_min + 0.45, min(floor_y_max - 0.6, top_y + 0.55))
+        return RoutedGoal("floor2_entry", start_x, start_y, floor_z)
+
+    def stair_connector_up_route(self) -> list[RoutedGoal]:
+        route: list[RoutedGoal] = []
+        route.extend(self._step_goals(self.lower_steps))
+
+        assert self.mid_landing is not None
+        x, y = center(self.mid_landing)
+        route.append(RoutedGoal("mid_landing_realistic", x, y, float(self.mid_landing["z_max"])))
+
+        route.extend(self._step_goals(self.upper_steps))
+        route.append(self.floor2_entry_goal())
+        return route
+
+    def stair_connector_down_route(self) -> list[RoutedGoal]:
+        route: list[RoutedGoal] = []
+        route.extend(reversed(self._step_goals(self.upper_steps)))
+
+        assert self.mid_landing is not None
+        x, y = center(self.mid_landing)
+        route.append(RoutedGoal("mid_landing_realistic", x, y, float(self.mid_landing["z_max"])))
+
+        route.extend(reversed(self._step_goals(self.lower_steps)))
+        route.append(self.stair_preentry_goal())
+        return route
+
+    def build_floor2_far_route(self, final_goal: RoutedGoal, spacing: float) -> list[RoutedGoal]:
+        if self.floor2 is None or not self.upper_steps:
+            return [final_goal]
+
+        floor_x_min = float(self.floor2["x_min"])
+        floor_x_max = float(self.floor2["x_max"])
+        floor_y_min = float(self.floor2["y_min"])
+        floor_y_max = float(self.floor2["y_max"])
+        floor_z = float(self.floor2["z_max"])
+
+        entry_goal = self.floor2_entry_goal()
+        start_x = entry_goal.x
+        start_y = entry_goal.y
         end_x = max(floor_x_min + 0.6, min(floor_x_max - 0.6, final_goal.x))
         end_y = max(floor_y_min + 0.45, min(floor_y_max - 0.6, final_goal.y))
 
-        goals = [RoutedGoal("floor2_entry", start_x, start_y, floor_z)]
+        goals = [entry_goal]
         dx = end_x - start_x
         dy = end_y - start_y
         dist = math.hypot(dx, dy)
@@ -159,7 +184,7 @@ class WhiteboxStairGoalRouter(Node):
         self.active_index = 0
         self.state = STATE_IDLE
         self.pending_final_goal: Optional[RoutedGoal] = None
-        self.floor2_far_route: list[RoutedGoal] = []
+        self.post_stair_far_route: list[RoutedGoal] = []
         self.stair_connector_route: list[RoutedGoal] = []
         self.raw_goal_key: Optional[tuple[int, int, int]] = None
         self.last_publish_time = self.get_clock().now()
@@ -187,35 +212,72 @@ class WhiteboxStairGoalRouter(Node):
             return
         self.raw_goal_key = goal_key
 
-        if self.route.is_second_floor_goal(msg):
-            if self._robot_is_on_second_floor():
-                self._start_passthrough(self._goal_from_msg("floor2_passthrough", msg))
-                self.get_logger().info("Robot is already on the second floor; routing floor2 goal directly to FAR.")
-                return
+        target_floor = 2 if self.route.is_second_floor_goal(msg) else 1
+        current_floor = self._current_floor()
 
-            full_route = self.route.build_second_floor_route(msg)
-            if len(full_route) <= 1:
-                self._start_passthrough(full_route[0])
+        if current_floor is None:
+            if target_floor == 2 and self.route.has_realistic_stair():
+                self.get_logger().warn("Current floor is unknown; assuming floor 1 for floor2 stair routing.")
+                self._start_upstairs_route(msg)
                 return
-            self.pending_final_goal = full_route[-1]
-            self.floor2_far_route = self.route.build_floor2_far_route(
-                self.pending_final_goal, self.args.floor2_far_spacing
-            )
-            self._start_segment(STATE_TO_ENTRY, [full_route[0]], force_publish=True)
-            self.stair_connector_route = full_route[1:-1]
-            if self.floor2_far_route and self.floor2_far_route[0].name == "floor2_entry":
-                # Treat the final stair-to-platform transition as part of the
-                # stair controller handoff. FAR resumes after the robot is
-                # already on the second-floor surface.
-                self.stair_connector_route.append(self.floor2_far_route.pop(0))
-            self.get_logger().info(
-                "Routing second-floor goal as segmented route: "
-                f"FAR to {full_route[0].name}, stair executor for "
-                f"{len(self.stair_connector_route)} connector goals, FAR through "
-                f"{len(self.floor2_far_route)} upstairs goals."
-            )
-        else:
-            self._start_passthrough(self._goal_from_msg("passthrough", msg))
+            self._start_passthrough(self._goal_from_msg(f"floor{target_floor}_passthrough", msg))
+            self.get_logger().info("Current floor is unknown; passing goal directly to FAR.")
+            return
+
+        if current_floor == target_floor:
+            self._start_passthrough(self._goal_from_msg(f"floor{target_floor}_passthrough", msg))
+            self.get_logger().info(f"Robot is already on floor {current_floor}; passing goal directly to FAR.")
+            return
+
+        if current_floor == 1 and target_floor == 2:
+            self._start_upstairs_route(msg)
+            return
+
+        if current_floor == 2 and target_floor == 1:
+            self._start_downstairs_route(msg)
+            return
+
+        self._start_passthrough(self._goal_from_msg("passthrough", msg))
+
+    def _start_upstairs_route(self, msg: PointStamped) -> None:
+        if not self.route.has_realistic_stair():
+            self._start_passthrough(self._goal_from_msg("floor2_passthrough", msg))
+            return
+
+        self.pending_final_goal = RoutedGoal(
+            "final_goal",
+            float(msg.point.x),
+            float(msg.point.y),
+            self.route.surface_goal_z(float(msg.point.z)),
+        )
+        self.post_stair_far_route = self.route.build_floor2_far_route(
+            self.pending_final_goal, self.args.floor2_far_spacing
+        )
+        self.stair_connector_route = self.route.stair_connector_up_route()
+        if self.post_stair_far_route and self.post_stair_far_route[0].name == "floor2_entry":
+            # The final stair-to-platform transition belongs to the stair
+            # controller handoff. FAR resumes after this point.
+            self.post_stair_far_route.pop(0)
+        self._start_segment(STATE_TO_ENTRY, [self.route.stair_preentry_goal()], force_publish=True)
+        self.get_logger().info(
+            "Routing floor1->floor2 goal: FAR to stair_preentry, stair executor for "
+            f"{len(self.stair_connector_route)} connector goals, FAR through "
+            f"{len(self.post_stair_far_route)} upstairs goals."
+        )
+
+    def _start_downstairs_route(self, msg: PointStamped) -> None:
+        if not self.route.has_realistic_stair():
+            self._start_passthrough(self._goal_from_msg("floor1_passthrough", msg))
+            return
+
+        self.pending_final_goal = self._goal_from_msg("final_goal", msg)
+        self.post_stair_far_route = [self.pending_final_goal]
+        self.stair_connector_route = self.route.stair_connector_down_route()
+        self._start_segment(STATE_TO_ENTRY, [self.route.floor2_entry_goal()], force_publish=True)
+        self.get_logger().info(
+            "Routing floor2->floor1 goal: FAR to floor2_entry, stair executor for "
+            f"{len(self.stair_connector_route)} connector goals, FAR to final floor1 goal."
+        )
 
     def _goal_from_msg(self, name: str, msg: PointStamped) -> RoutedGoal:
         raw_z = float(msg.point.z)
@@ -227,6 +289,13 @@ class WhiteboxStairGoalRouter(Node):
             uses_odom_z = abs(raw_z - surface_z) > 1e-3
         return RoutedGoal(name, float(msg.point.x), float(msg.point.y), raw_z if uses_odom_z else surface_z, uses_odom_z)
 
+    def _current_floor(self) -> Optional[int]:
+        if self._robot_is_on_second_floor():
+            return 2
+        if self.last_odom is not None:
+            return 1
+        return None
+
     def _robot_is_on_second_floor(self) -> bool:
         if self.last_odom is None or self.route.floor2 is None:
             return False
@@ -236,7 +305,7 @@ class WhiteboxStairGoalRouter(Node):
 
     def _start_passthrough(self, goal: RoutedGoal) -> None:
         self.pending_final_goal = None
-        self.floor2_far_route = []
+        self.post_stair_far_route = []
         self.stair_connector_route = []
         self._start_segment(STATE_PASSTHROUGH, [goal], force_publish=True)
         self.get_logger().info(f"Passing goal through: ({goal.x:.2f}, {goal.y:.2f}, {goal.z:.2f}).")
@@ -296,7 +365,7 @@ class WhiteboxStairGoalRouter(Node):
         return self.state in (STATE_PASSTHROUGH, STATE_TO_ENTRY, STATE_TO_FINAL)
 
     def _using_stair_executor(self) -> bool:
-        return self.state in (STATE_STAIR_EXEC, STATE_FLOOR2_EXEC_FALLBACK)
+        return self.state in (STATE_STAIR_EXEC, STATE_POST_STAIR_EXEC_FALLBACK)
 
     def _publish_path_follower_stop(self, stop: bool) -> None:
         msg = Int8()
@@ -372,15 +441,15 @@ class WhiteboxStairGoalRouter(Node):
             if self.stair_connector_route:
                 self._start_segment(STATE_STAIR_EXEC, self.stair_connector_route)
                 return
-            if self.floor2_far_route:
-                self._start_segment(STATE_TO_FINAL, self.floor2_far_route, force_publish=True)
+            if self.post_stair_far_route:
+                self._start_segment(STATE_TO_FINAL, self.post_stair_far_route, force_publish=True)
                 return
         elif self.state == STATE_STAIR_EXEC:
-            if self.floor2_far_route:
-                self._start_segment(STATE_TO_FINAL, self.floor2_far_route, force_publish=True)
+            if self.post_stair_far_route:
+                self._start_segment(STATE_TO_FINAL, self.post_stair_far_route, force_publish=True)
                 return
-        elif self.state == STATE_FLOOR2_EXEC_FALLBACK:
-            self.get_logger().info("Completed second-floor fallback executor segment.")
+        elif self.state == STATE_POST_STAIR_EXEC_FALLBACK:
+            self.get_logger().info("Completed post-stair fallback executor segment.")
         elif self.state in (STATE_TO_FINAL, STATE_PASSTHROUGH):
             self.get_logger().info(f"Completed route segment sequence in state {self.state}.")
 
@@ -388,7 +457,7 @@ class WhiteboxStairGoalRouter(Node):
         self.active_route = []
         self.active_index = 0
         self.pending_final_goal = None
-        self.floor2_far_route = []
+        self.post_stair_far_route = []
         self.stair_connector_route = []
         self._publish_path_follower_stop(True)
 
@@ -401,12 +470,12 @@ class WhiteboxStairGoalRouter(Node):
         if elapsed < self.args.final_fallback_timeout:
             return
         self.get_logger().warn(
-            "FAR has not connected the current second-floor subgoal within "
-            f"{self.args.final_fallback_timeout:.1f}s; switching the remaining upstairs route "
-            "to temporary FLOOR2_EXEC_FALLBACK. "
-            "This keeps the whitebox demo moving but marks the upstairs FAR planning gap explicitly."
+            "FAR has not connected the current post-stair subgoal within "
+            f"{self.args.final_fallback_timeout:.1f}s; switching the remaining post-stair route "
+            "to temporary POST_STAIR_EXEC_FALLBACK. "
+            "This keeps the whitebox demo moving but marks the FAR planning gap explicitly."
         )
-        self._start_segment(STATE_FLOOR2_EXEC_FALLBACK, self.active_route[self.active_index:])
+        self._start_segment(STATE_POST_STAIR_EXEC_FALLBACK, self.active_route[self.active_index:])
 
 
 def yaw_from_odom(odom: Odometry) -> float:
@@ -417,7 +486,7 @@ def yaw_from_odom(odom: Odometry) -> float:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Route whitebox second-floor goals through stair connectors.")
+    parser = argparse.ArgumentParser(description="Route whitebox cross-floor goals through stair connectors.")
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--input-topic", default="/goal_point")
     parser.add_argument("--output-topic", default="/routed_goal_point")
