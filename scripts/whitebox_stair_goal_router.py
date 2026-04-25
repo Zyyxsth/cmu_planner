@@ -188,6 +188,11 @@ class WhiteboxStairGoalRouter(Node):
         self.raw_goal_key = goal_key
 
         if self.route.is_second_floor_goal(msg):
+            if self._robot_is_on_second_floor():
+                self._start_passthrough(self._goal_from_msg("floor2_passthrough", msg))
+                self.get_logger().info("Robot is already on the second floor; routing floor2 goal directly to FAR.")
+                return
+
             full_route = self.route.build_second_floor_route(msg)
             if len(full_route) <= 1:
                 self._start_passthrough(full_route[0])
@@ -210,9 +215,24 @@ class WhiteboxStairGoalRouter(Node):
                 f"{len(self.floor2_far_route)} upstairs goals."
             )
         else:
-            self._start_passthrough(
-                RoutedGoal("passthrough", float(msg.point.x), float(msg.point.y), float(msg.point.z), True)
-            )
+            self._start_passthrough(self._goal_from_msg("passthrough", msg))
+
+    def _goal_from_msg(self, name: str, msg: PointStamped) -> RoutedGoal:
+        raw_z = float(msg.point.z)
+        surface_z = self.route.surface_goal_z(raw_z)
+        # RViz floor modes publish odom/sensor height; probe scripts can publish
+        # surface height for second-floor probes. Preserve the source encoding.
+        uses_odom_z = True
+        if self.route.is_second_floor_goal(msg):
+            uses_odom_z = abs(raw_z - surface_z) > 1e-3
+        return RoutedGoal(name, float(msg.point.x), float(msg.point.y), raw_z if uses_odom_z else surface_z, uses_odom_z)
+
+    def _robot_is_on_second_floor(self) -> bool:
+        if self.last_odom is None or self.route.floor2 is None:
+            return False
+        odom_z = float(self.last_odom.pose.pose.position.z)
+        floor2_odom_z = float(self.route.floor2["z_max"]) + self.args.vehicle_height
+        return odom_z >= floor2_odom_z - self.args.current_floor_z_tolerance
 
     def _start_passthrough(self, goal: RoutedGoal) -> None:
         self.pending_final_goal = None
@@ -413,6 +433,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stair-exit-reach-radius", type=float, default=0.20)
     parser.add_argument("--stair-exit-z-tolerance", type=float, default=0.12)
     parser.add_argument("--floor2-far-spacing", type=float, default=1.25)
+    parser.add_argument("--current-floor-z-tolerance", type=float, default=0.25)
     parser.add_argument("--final-reach-radius", type=float, default=0.60)
     parser.add_argument("--final-z-tolerance", type=float, default=0.35)
     parser.add_argument("--final-fallback-timeout", type=float, default=8.0)

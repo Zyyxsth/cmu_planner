@@ -155,6 +155,8 @@ The router is intentionally segmented:
 - `TO_FINAL`: publish short second-floor platform subgoals back to FAR after the robot is already on the second-floor surface.
 - `FLOOR2_EXEC_FALLBACK`: still exists as an explicit failure mode if FAR cannot connect an upstairs subgoal within the timeout, but it should not be used in the validated nominal two-floor probe.
 
+If the robot is already on the second floor, a new second-floor `Goalpoint` is passed directly to FAR instead of rebuilding the full stair route from the first-floor stair entry.
+
 While `STAIR_EXEC` or `FLOOR2_EXEC_FALLBACK` is active, the router also publishes `/stop=2` and zero `/cmd_vel` so the original `pathFollower` does not keep driving a stale FAR waypoint during the simulated stair-controller segment. The next FAR-controlled segment releases `/stop=0`.
 
 ### Current Scope

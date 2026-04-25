@@ -103,10 +103,12 @@ python3 scripts/generate_whitebox_stair_test_scene.py --profile compact
 
 - `TO_ENTRY`：先把楼梯入口前目标发给 FAR，由原来的 FAR / localPlanner / pathFollower 走过去。
 - `STAIR_EXEC`：只在楼梯 connector 段使用仿真专用 `/whitebox_vehicle_pose_override` 推进 `vehicleSimulator`。这个段对应以后要替换成 RL/楼梯底层控制器的位置。
-- `TO_FINAL`：到达楼梯顶后，把二楼平台内的短距离子目标依次发回 FAR，例如 `floor2_entry -> floor2_waypoint_* -> final_goal`。
-- `FLOOR2_EXEC_FALLBACK`：当前 FAR 在二楼平台内还会出现 `goal_traversable=false`，如果超时没有接上当前二楼子目标，router 会明确打印 warning，然后用临时 fallback 把剩余二楼平台段走完，避免白盒 demo 假死。
+- `TO_FINAL`：到达楼梯顶并进入 `floor2_entry` 后，把二楼平台内的短距离子目标依次发回 FAR。
+- `FLOOR2_EXEC_FALLBACK`：如果 FAR 超时没有接上当前二楼子目标，router 会明确打印 warning，然后用临时 fallback 把剩余二楼平台段走完，避免白盒 demo 假死。正常验证路径不应该进入这个状态。
 
-所以现在不是“两个 vehicleSimulator”，也不是两个运动模型；仍然只有一个 `vehicleSimulator`。差别只是不同路线段选择不同控制输入：普通平地段用原始 `/cmd_vel`，楼梯/临时 fallback 段用 pose override。为了避免旧 FAR 目标残留造成抖动，router 在 `STAIR_EXEC` 和 `FLOOR2_EXEC_FALLBACK` 期间会持续发布 `/stop=2` 和零 `/cmd_vel`，等下一个 FAR 控制段开始时再发布 `/stop=0`。
+如果机器人当前 `/state_estimation.z` 已经在二楼高度附近，再次点击二楼 `Goalpoint` 时不会重新走 `TO_ENTRY -> STAIR_EXEC`，而是直接把新的二楼目标透传给 FAR。这样在二楼连续点多个目标时，不会回到一楼楼梯入口。
+
+所以现在不是“两个 vehicleSimulator”，也不是两个运动模型；仍然只有一个 `vehicleSimulator`。差别只是不同路线段选择不同控制输入：普通平地段用原始 `/cmd_vel`，楼梯/失败 fallback 段用 pose override。为了避免旧 FAR 目标残留造成抖动，router 在 `STAIR_EXEC` 和 `FLOOR2_EXEC_FALLBACK` 期间会持续发布 `/stop=2` 和零 `/cmd_vel`，等下一个 FAR 控制段开始时再发布 `/stop=0`。
 
 ## 建议验证顺序
 
