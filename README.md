@@ -160,6 +160,16 @@ Validated round-trip probe run: `logs/whitebox_terrain_probe/20260428_163140_rou
 
 For the multi-level realistic scene, Gazebo still provides the planner-facing lidar and terrain maps. Two whitebox-only helpers use the generated scene metadata: `/whitebox_vehicle_terrain_map` feeds `vehicleSimulator` an unambiguous current floor height, and `whitebox_stair_goal_router.py` routes only cross-floor goals through the known stair connector.
 
+The generated scene metadata now exposes stair connectivity explicitly through `connectors`. The realistic profile writes a `south_split_stair_connector` entry with:
+
+- `lower_floor` / `upper_floor`
+- `lower_entry_goal` / `upper_entry_goal`
+- `up_route` / `down_route`
+- `allowed_directions`
+- `controller: stair_policy_placeholder`
+
+`whitebox_stair_goal_router.py` reads this connector first and only falls back to object-name inference for older metadata. This makes the stair connection a planner-facing data structure instead of a private router hardcode.
+
 The router is intentionally segmented:
 
 - Same-floor: publish the requested goal directly to FAR.

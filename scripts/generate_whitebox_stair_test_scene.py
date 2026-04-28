@@ -616,6 +616,75 @@ def metadata_dict(spec: BoxSpec | RampSpec) -> dict[str, object]:
     return {key: value for key, value in data.items() if value is not None}
 
 
+def spec_center(spec: BoxSpec | RampSpec) -> tuple[float, float]:
+    return (float(spec.x_min) + float(spec.x_max)) / 2.0, (float(spec.y_min) + float(spec.y_max)) / 2.0
+
+
+def route_goal(name: str, x: float, y: float, z: float) -> dict[str, object]:
+    return {"name": name, "x": x, "y": y, "z": z}
+
+
+def selected_stair_step_goals(steps: list[BoxSpec]) -> list[dict[str, object]]:
+    goals: list[dict[str, object]] = []
+    for idx, step in enumerate(steps):
+        if idx % 2 == 1 or idx == len(steps) - 1:
+            x, y = spec_center(step)
+            goals.append(route_goal(step.name, x, y, float(step.z_max)))
+    return goals
+
+
+def floor2_entry_goal(floor2: BoxSpec, upper_steps: list[BoxSpec]) -> dict[str, object]:
+    top_x, top_y = spec_center(upper_steps[-1])
+    start_x = max(float(floor2.x_min) + 0.6, min(float(floor2.x_max) - 0.6, top_x))
+    start_y = max(float(floor2.y_min) + 0.45, min(float(floor2.y_max) - 0.6, top_y + 0.55))
+    return route_goal("floor2_entry", start_x, start_y, float(floor2.z_max))
+
+
+def build_connectors(boxes: list[BoxSpec], profile: str) -> list[dict[str, object]]:
+    if profile != "realistic":
+        return []
+
+    floor2 = next((spec for spec in boxes if spec.name == "floor_2_south_landing"), None)
+    mid_landing = next((spec for spec in boxes if spec.name == "mid_landing_realistic"), None)
+    lower_steps = sorted(
+        [spec for spec in boxes if spec.group_name == "stair_realistic_lower"],
+        key=lambda spec: int(spec.step_index or 0),
+    )
+    upper_steps = sorted(
+        [spec for spec in boxes if spec.group_name == "stair_realistic_upper"],
+        key=lambda spec: int(spec.step_index or 0),
+    )
+    if floor2 is None or mid_landing is None or not lower_steps or not upper_steps:
+        return []
+
+    mid_x, mid_y = spec_center(mid_landing)
+    entry_goal = route_goal("stair_preentry", -4.0, -1.8, 0.0)
+    exit_goal = floor2_entry_goal(floor2, upper_steps)
+    up_route = (
+        selected_stair_step_goals(lower_steps)
+        + [route_goal("mid_landing_realistic", mid_x, mid_y, float(mid_landing.z_max))]
+        + selected_stair_step_goals(upper_steps)
+        + [exit_goal]
+    )
+    down_route = list(reversed(up_route[:-1])) + [entry_goal]
+
+    return [
+        {
+            "name": "south_split_stair_connector",
+            "connector_kind": "stair",
+            "lower_floor": "floor_1",
+            "upper_floor": "floor_2_south_landing",
+            "lower_entry_goal": entry_goal,
+            "upper_entry_goal": exit_goal,
+            "allowed_directions": ["up", "down"],
+            "up_route": up_route,
+            "down_route": down_route,
+            "controller": "stair_policy_placeholder",
+            "notes": "Simulation whitebox connector; replace controller with RL stair policy on hardware.",
+        }
+    ]
+
+
 def write_map_ply(output_path: Path, step: float = 0.05, profile: str = "realistic") -> int:
     boxes, ramps = build_scene(profile)
     points: set[tuple[float, float, float]] = set()
@@ -724,6 +793,7 @@ def write_obj(output_path: Path, profile: str = "realistic") -> dict[str, object
             },
         },
         "objects": [metadata_dict(spec) for spec in boxes] + [metadata_dict(spec) for spec in ramps],
+        "connectors": build_connectors(boxes, profile),
     }
     metadata_path = output_path.with_suffix(".json")
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="ascii")

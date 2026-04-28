@@ -55,9 +55,19 @@ class WhiteboxStairRoute:
         objects = {str(obj["name"]): obj for obj in metadata["objects"]}
         self.vehicle_height = vehicle_height
         self.floor2 = objects.get("floor_2_south_landing")
+        self.stair_connector = self._select_stair_connector(metadata.get("connectors", []))
         self.lower_steps = self._sorted_steps(objects, "stair_realistic_lower")
         self.upper_steps = self._sorted_steps(objects, "stair_realistic_upper")
         self.mid_landing = objects.get("mid_landing_realistic")
+
+    @staticmethod
+    def _select_stair_connector(connectors: object) -> Optional[dict[str, object]]:
+        if not isinstance(connectors, list):
+            return None
+        for connector in connectors:
+            if isinstance(connector, dict) and connector.get("connector_kind") == "stair":
+                return connector
+        return None
 
     @staticmethod
     def _sorted_steps(objects: dict[str, dict[str, object]], group_name: str) -> list[dict[str, object]]:
@@ -69,7 +79,7 @@ class WhiteboxStairRoute:
         return sorted(steps, key=lambda obj: int(obj.get("step_index", 0)))
 
     def has_realistic_stair(self) -> bool:
-        return bool(self.floor2 and self.mid_landing and self.lower_steps and self.upper_steps)
+        return bool(self.floor2 and (self.stair_connector or (self.mid_landing and self.lower_steps and self.upper_steps)))
 
     def is_second_floor_goal(self, goal: PointStamped) -> bool:
         goal_surface_z = self.surface_goal_z(float(goal.point.z))
@@ -87,9 +97,15 @@ class WhiteboxStairRoute:
         return raw_z
 
     def stair_preentry_goal(self) -> RoutedGoal:
+        goal = self._connector_goal("lower_entry_goal")
+        if goal is not None:
+            return goal
         return RoutedGoal("stair_preentry", -4.0, -1.8, 0.0)
 
     def floor2_entry_goal(self) -> RoutedGoal:
+        goal = self._connector_goal("upper_entry_goal")
+        if goal is not None:
+            return goal
         if self.floor2 is None or not self.upper_steps:
             return RoutedGoal("floor2_entry", 0.0, 0.0, 0.0)
 
@@ -105,6 +121,10 @@ class WhiteboxStairRoute:
         return RoutedGoal("floor2_entry", start_x, start_y, floor_z)
 
     def stair_connector_up_route(self) -> list[RoutedGoal]:
+        route = self._connector_route("up_route")
+        if route:
+            return route
+
         route: list[RoutedGoal] = []
         route.extend(self._step_goals(self.lower_steps))
 
@@ -117,6 +137,10 @@ class WhiteboxStairRoute:
         return route
 
     def stair_connector_down_route(self) -> list[RoutedGoal]:
+        route = self._connector_route("down_route")
+        if route:
+            return route
+
         route: list[RoutedGoal] = []
         route.extend(reversed(self._step_goals(self.upper_steps)))
 
@@ -172,6 +196,35 @@ class WhiteboxStairRoute:
             x, y = center(step)
             goals.append(RoutedGoal(str(step["name"]), x, y, float(step["z_max"])))
         return goals
+
+    def _connector_goal(self, key: str) -> Optional[RoutedGoal]:
+        if self.stair_connector is None:
+            return None
+        raw_goal = self.stair_connector.get(key)
+        if not isinstance(raw_goal, dict):
+            return None
+        return self._goal_from_dict(raw_goal)
+
+    def _connector_route(self, key: str) -> list[RoutedGoal]:
+        if self.stair_connector is None:
+            return []
+        raw_route = self.stair_connector.get(key)
+        if not isinstance(raw_route, list):
+            return []
+        route = []
+        for raw_goal in raw_route:
+            if isinstance(raw_goal, dict):
+                route.append(self._goal_from_dict(raw_goal))
+        return route
+
+    @staticmethod
+    def _goal_from_dict(raw_goal: dict[str, object]) -> RoutedGoal:
+        return RoutedGoal(
+            str(raw_goal["name"]),
+            float(raw_goal["x"]),
+            float(raw_goal["y"]),
+            float(raw_goal["z"]),
+        )
 
 
 class WhiteboxStairGoalRouter(Node):

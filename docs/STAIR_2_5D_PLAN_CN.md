@@ -379,17 +379,18 @@
 
 ### Milestone A：表达层定义
 
-- [ ] 明确当前版本采用“单高度场增强版”还是“局部分层高度场”
-- [ ] 明确一楼/二楼在当前系统中的表达方式
-- [ ] 明确 `/goal_point` 的 `z` 在各模块中的语义
+- [x] 当前仿真版本先采用“单高度场 + 显式跨层 connector”，不直接做完整局部分层高度场
+- [x] 一楼/二楼在当前系统中通过 `/state_estimation.z`、`/goal_point.z` 和 metadata `connectors` 表达
+- [x] 明确 `/goal_point` 的 `z` 在 Gazebo 白盒多楼层模式中用于区分目标楼层
 - [ ] 明确 `/state_estimation` / viewpoint / path 的高度参考
 
 ### Milestone B：仿真基线
 
-- [ ] 搭建缓坡仿真场景
-- [ ] 搭建单台阶仿真场景
-- [ ] 搭建标准楼梯仿真场景
-- [ ] 固定起点 / 终点 / 评价指标
+- [x] 搭建缓坡仿真场景
+- [x] 搭建单台阶仿真场景
+- [x] 搭建标准楼梯仿真场景
+- [x] 固定起点 / 终点 / 评价指标
+- [x] 增加双向楼梯 connector 自动 probe：`two_floor_round_trip`
 
 ### Milestone C：地形分类
 
