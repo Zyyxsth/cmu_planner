@@ -146,6 +146,18 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 
 This uses normal `/goal_point` goals, not direct `/way_point` injection. With `--require-goal-z`, the summary records `expected_odom_z` and `min_z_error`, so a second-floor target is only successful if `/state_estimation.z` reaches the requested floor height instead of merely reaching the same XY projection.
 
+To validate the bidirectional stair connector, run:
+
+```bash
+python3 scripts/probe_whitebox_terrain_topics.py \
+  --probe two_floor_round_trip \
+  --require-goal-z
+```
+
+`two_floor_round_trip` is a scenario alias: it first publishes `two_floor_goal` to reach the second floor, then publishes `floor2_to_floor1_goal` with first-floor height so the router must use the reverse stair connector.
+
+Validated round-trip probe run: `logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json` reached both segments. The upstairs segment ended at `final_odom_z=3.75m`, and the downstairs segment ended at `final_odom_z=0.75m`.
+
 For the multi-level realistic scene, Gazebo still provides the planner-facing lidar and terrain maps. Two whitebox-only helpers use the generated scene metadata: `/whitebox_vehicle_terrain_map` feeds `vehicleSimulator` an unambiguous current floor height, and `whitebox_stair_goal_router.py` routes only cross-floor goals through the known stair connector.
 
 The router is intentionally segmented:

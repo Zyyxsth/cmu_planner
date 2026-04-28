@@ -217,12 +217,40 @@ def default_probe_goals(objects: dict[str, dict[str, float]]) -> list[ProbeGoal]
 def parse_probe_filter(raw: str, goals: list[ProbeGoal]) -> list[ProbeGoal]:
     if not raw:
         return goals
-    requested = {item.strip() for item in raw.split(",") if item.strip()}
-    selected = [goal for goal in goals if goal.name in requested]
-    missing = sorted(requested - {goal.name for goal in selected})
+
+    goals_by_name = {goal.name: goal for goal in goals}
+    scenario_sequences = scenario_probe_sequences(goals_by_name)
+    selected: list[ProbeGoal] = []
+    missing: list[str] = []
+    for requested in [item.strip() for item in raw.split(",") if item.strip()]:
+        if requested in scenario_sequences:
+            selected.extend(scenario_sequences[requested])
+        elif requested in goals_by_name:
+            selected.append(goals_by_name[requested])
+        else:
+            missing.append(requested)
     if missing:
-        raise ValueError(f"Unknown probe name(s): {', '.join(missing)}")
+        available = sorted(list(goals_by_name.keys()) + list(scenario_sequences.keys()))
+        raise ValueError(f"Unknown probe name(s): {', '.join(missing)}. Available probes/scenarios: {', '.join(available)}")
     return selected
+
+
+def scenario_probe_sequences(goals_by_name: dict[str, ProbeGoal]) -> dict[str, list[ProbeGoal]]:
+    scenarios: dict[str, list[ProbeGoal]] = {}
+    upstairs_goal = goals_by_name.get("two_floor_goal")
+    if upstairs_goal is None:
+        return scenarios
+
+    downstairs_goal = ProbeGoal(
+        "floor2_to_floor1_goal",
+        -5.0,
+        -1.8,
+        0.0,
+        "first-floor return goal; scenario first reaches two_floor_goal, then routes downstairs",
+    )
+    scenarios["floor2_to_floor1"] = [upstairs_goal, downstairs_goal]
+    scenarios["two_floor_round_trip"] = [upstairs_goal, downstairs_goal]
+    return scenarios
 
 
 def distance_xy(odom: Optional[Odometry], goal: ProbeGoal) -> float:

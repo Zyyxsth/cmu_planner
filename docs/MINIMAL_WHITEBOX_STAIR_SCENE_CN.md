@@ -222,6 +222,24 @@ python3 scripts/probe_whitebox_terrain_topics.py \
   --require-goal-z
 ```
 
+如果想测试“先上二楼，再从二楼回一楼”的双向 connector：
+
+```bash
+python3 scripts/probe_whitebox_terrain_topics.py \
+  --probe two_floor_round_trip \
+  --require-goal-z
+```
+
+`two_floor_round_trip` 是一个场景别名，不是单个目标点。它会先发布 `two_floor_goal`，等机器人到达二楼后，再发布一楼高度的 `floor2_to_floor1_goal`，从而强制验证 router 是否根据当前 odom 楼层走反向楼梯 connector。
+
+当前已验证的一次往返 probe：
+
+```text
+logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json
+```
+
+结果是两个分段都 `status=reached`：上楼段最终 `final_odom_z=3.75m`，下楼段最终 `final_odom_z=0.75m`。
+
 这条测试只发布正常 `/goal_point`，不会直接注入 `/way_point`。加上 `--require-goal-z` 后，判断不会只看 XY 距离，还会要求 `/state_estimation.z` 接近 `goal.z + vehicleHeight`。真实二楼平台目标附近应当从一楼高度上升到约 `3.75m`，对应二楼平台高度 `3.00m` 加 `vehicleHeight`。
 
 注意：真实多楼层白盒场景里，一楼和二楼可能在 XY 上重叠。Gazebo lidar 和 planner-facing `/terrain_map` 仍然来自真实点云；但 `vehicleSimulator` 的高度跟随会单独订阅 `/whitebox_vehicle_terrain_map`。这个 topic 由 `scripts/publish_whitebox_vehicle_terrain_map.py` 根据生成的 metadata 发布，只用于 kinematic simulator 的当前楼层高度，避免 `vehicleSimulator` 在二楼 XY 下误选一楼高度。
