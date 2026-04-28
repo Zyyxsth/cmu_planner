@@ -382,7 +382,8 @@
 - [x] 当前仿真版本先采用“单高度场 + 显式跨层 connector”，不直接做完整局部分层高度场
 - [x] 一楼/二楼在当前系统中通过 `/state_estimation.z`、`/goal_point.z` 和 metadata `connectors` 表达
 - [x] 明确 `/goal_point` 的 `z` 在 Gazebo 白盒多楼层模式中用于区分目标楼层
-- [ ] 明确 `/state_estimation` / viewpoint / path 的高度参考
+- [x] 明确 Gazebo 白盒导航链路中 `/state_estimation.z` 采用 odom / sensor 高度，场景 surface height 通过 `vehicleHeight` 转换
+- [ ] 明确 TARE viewpoint / exploration path 的高度参考
 
 ### Milestone B：仿真基线
 
@@ -391,6 +392,7 @@
 - [x] 搭建标准楼梯仿真场景
 - [x] 固定起点 / 终点 / 评价指标
 - [x] 增加双向楼梯 connector 自动 probe：`two_floor_round_trip`
+- [x] 将楼梯拓扑写入 metadata `connectors`，供 router / 后续 planner 读取
 
 ### Milestone C：地形分类
 
@@ -400,14 +402,16 @@
   - [ ] 缓坡
   - [ ] 台阶/楼梯边缘
   - [ ] 竖直障碍
-- [ ] 为分类结果增加调试输出
+- [ ] 为分类结果增加调试输出，例如 debug cloud intensity / label topic
+- [ ] 用 Gazebo 白盒 probe 对比 `registered_scan`、`terrain_map`、`terrain_map_ext` 中的坡道和楼梯边缘统计
 
 ### Milestone D：导航规划
 
 - [ ] 让 `localPlanner` 使用新的地形分类
 - [ ] 缓坡场景下生成连续路径
 - [ ] 楼梯场景下先稳定判成不可直接通过
-- [ ] 落实 goal `z` 的保留与重投影规则
+- [x] Gazebo 白盒 FAR 配置已保留 `/goal_point.z`，用于一楼 / 二楼目标区分
+- [ ] 全面梳理普通模式、探索模式、真实机器人模式下 goal `z` 的保留与重投影规则
 
 ### Milestone E：探索适配
 
@@ -421,6 +425,16 @@
 - [ ] 先测缓坡
 - [ ] 再测低矮台阶
 - [ ] 最后才测楼梯
+
+## 6.1 当前下一步 TODO
+
+当前不建议继续扩展白盒 router 规则。下一步应该把信息从“白盒 connector 能通”推进到“planner 能理解局部地形”：
+
+1. 在 `terrainAnalysis` / `terrainAnalysisExt` 中增加坡度、局部高度连续性和高度突变统计。
+2. 增加一个调试输出，能在 RViz/Foxglove 中区分 `flat_ground`、`traversable_slope`、`step_or_stair_edge`、`vertical_obstacle`。
+3. 用已有 Gazebo probes 跑固定对比，确认缓坡和楼梯边缘在分类上可区分。
+4. 再让 `localPlanner` 使用这些分类：先允许缓坡，楼梯边缘默认不可直接通过。
+5. 最后再评估是否把 metadata `connectors` 接入 FAR 图搜索，替代当前 router 分段。
 
 ## 7. 我们下一步最适合从哪里开始
 

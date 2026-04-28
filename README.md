@@ -738,17 +738,26 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - viewpoint / selected viewpoint visualization
     - uncovered cloud / frontier visualization
     - understanding why the planner chooses a given local path
-- 2.5D slope / stair planning needs a staged implementation plan.
-  - Current stack can handle some height-field terrain, but it does not yet explicitly distinguish:
-    - traversable slope
-    - non-traversable stair / step edge
-    - traversable stair for a stair-capable robot
-  - A dedicated staged plan now exists here:
+- 2.5D slope / stair planning now has a Gazebo simulation baseline.
+  - Completed on branch `codex/gazebo-two-floor-whitebox`:
+    - Gazebo whitebox terrain backend using the existing `/cmd_vel`, `/state_estimation`, `/registered_scan`, FAR, local planner, and `vehicleSimulator` contracts.
+    - realistic 2.5D scene with flat ground, ramps, single steps, split stair, mid landing, and second-floor landing.
+    - RViz goal height modes for distinguishing first-floor and second-floor goals at the same XY projection.
+    - whitebox stair router based on current odom floor and target goal floor.
+    - bidirectional stair connector validation through `two_floor_round_trip`.
+    - explicit scene metadata `connectors` for the stair topology.
+  - Remaining simulation-first work:
+    - make `terrainAnalysis` / `terrainAnalysisExt` produce planner-usable terrain classes such as flat, slope, stair edge, and obstacle.
+    - make `localPlanner` consume those classes instead of relying only on a single height threshold.
+    - validate ramp traversal separately from stair connector traversal.
+    - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.
+  - Later work:
+    - shadow-mode real robot logging on ramps / stair approaches.
+    - controlled real stair tests only after the simulation classification and local-planning behavior are stable.
+  - Current plan and status:
     - [docs/STAIR_2_5D_PLAN_CN.md](/home/robot/cmu_planner/docs/STAIR_2_5D_PLAN_CN.md)
-  - Implementation order should be:
-    - simulation-first
-    - then shadow-mode real robot validation
-    - then controlled real stair tests
+  - Weekly summary:
+    - [docs/WEEKLY_SUMMARY_2026_04_28_CN.md](/home/robot/cmu_planner/docs/WEEKLY_SUMMARY_2026_04_28_CN.md)
 
 ### What is in charge
 
