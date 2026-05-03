@@ -11,6 +11,7 @@ The default realistic scene contains:
 - multiple ramps with different rises
 - multiple single steps
 - a split two-flight staircase with a mid landing
+- a second service staircase for connector-selection tests
 - a 3.0m second-floor landing connected by 20 x 0.15m steps
 """
 
@@ -494,6 +495,21 @@ def build_realistic_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
         )
     )
 
+    add_y_staircase(
+        boxes,
+        "stair_realistic_north_service",
+        6.20,
+        14.60,
+        -1,
+        total_steps,
+        stair_rise,
+        stair_tread,
+        stair_width,
+        base_z=0.0,
+        global_step_offset=0,
+        total_step_count=total_steps,
+    )
+
     return boxes, build_common_ramps()
 
 
@@ -536,6 +552,10 @@ def count_stair_groups(boxes: list[BoxSpec]) -> int:
 
 def max_stair_step_count(boxes: list[BoxSpec]) -> int:
     return max((spec.step_count or 0 for spec in boxes if spec.terrain_kind == "stair_step"), default=0)
+
+
+def count_stair_steps(boxes: list[BoxSpec]) -> int:
+    return sum(1 for spec in boxes if spec.terrain_kind == "stair_step")
 
 
 def canonical_stair_params(boxes: list[BoxSpec]) -> dict[str, float]:
@@ -633,11 +653,18 @@ def selected_stair_step_goals(steps: list[BoxSpec]) -> list[dict[str, object]]:
     return goals
 
 
-def floor2_entry_goal(floor2: BoxSpec, upper_steps: list[BoxSpec]) -> dict[str, object]:
+def south_floor2_entry_goal(floor2: BoxSpec, upper_steps: list[BoxSpec]) -> dict[str, object]:
     top_x, top_y = spec_center(upper_steps[-1])
     start_x = max(float(floor2.x_min) + 0.6, min(float(floor2.x_max) - 0.6, top_x))
     start_y = max(float(floor2.y_min) + 0.45, min(float(floor2.y_max) - 0.6, top_y + 0.55))
     return route_goal("floor2_entry", start_x, start_y, float(floor2.z_max))
+
+
+def north_floor2_entry_goal(floor2: BoxSpec, north_steps: list[BoxSpec]) -> dict[str, object]:
+    top_x, top_y = spec_center(north_steps[-1])
+    start_x = max(float(floor2.x_min) + 0.6, min(float(floor2.x_max) - 0.6, top_x))
+    start_y = max(float(floor2.y_min) + 0.6, min(float(floor2.y_max) - 0.45, top_y - 0.55))
+    return route_goal("north_floor2_entry", start_x, start_y, float(floor2.z_max))
 
 
 def build_connectors(boxes: list[BoxSpec], profile: str) -> list[dict[str, object]]:
@@ -654,12 +681,16 @@ def build_connectors(boxes: list[BoxSpec], profile: str) -> list[dict[str, objec
         [spec for spec in boxes if spec.group_name == "stair_realistic_upper"],
         key=lambda spec: int(spec.step_index or 0),
     )
+    north_steps = sorted(
+        [spec for spec in boxes if spec.group_name == "stair_realistic_north_service"],
+        key=lambda spec: int(spec.step_index or 0),
+    )
     if floor2 is None or mid_landing is None or not lower_steps or not upper_steps:
         return []
 
     mid_x, mid_y = spec_center(mid_landing)
     entry_goal = route_goal("stair_preentry", -4.0, -1.8, 0.0)
-    exit_goal = floor2_entry_goal(floor2, upper_steps)
+    exit_goal = south_floor2_entry_goal(floor2, upper_steps)
     up_route = (
         selected_stair_step_goals(lower_steps)
         + [route_goal("mid_landing_realistic", mid_x, mid_y, float(mid_landing.z_max))]
@@ -668,7 +699,7 @@ def build_connectors(boxes: list[BoxSpec], profile: str) -> list[dict[str, objec
     )
     down_route = list(reversed(up_route[:-1])) + [entry_goal]
 
-    return [
+    connectors = [
         {
             "name": "south_split_stair_connector",
             "connector_kind": "stair",
@@ -683,6 +714,29 @@ def build_connectors(boxes: list[BoxSpec], profile: str) -> list[dict[str, objec
             "notes": "Simulation whitebox connector; replace controller with RL stair policy on hardware.",
         }
     ]
+
+    if north_steps:
+        north_lower_entry = route_goal("north_stair_preentry", 6.8, 15.15, 0.0)
+        north_upper_entry = north_floor2_entry_goal(floor2, north_steps)
+        north_up_route = selected_stair_step_goals(north_steps) + [north_upper_entry]
+        north_down_route = list(reversed(north_up_route[:-1])) + [north_lower_entry]
+        connectors.append(
+            {
+                "name": "north_service_stair_connector",
+                "connector_kind": "stair",
+                "lower_floor": "floor_1",
+                "upper_floor": "floor_2_south_landing",
+                "lower_entry_goal": north_lower_entry,
+                "upper_entry_goal": north_upper_entry,
+                "allowed_directions": ["up", "down"],
+                "up_route": north_up_route,
+                "down_route": north_down_route,
+                "controller": "stair_policy_placeholder",
+                "notes": "Second candidate connector used to validate task-level stair selection.",
+            }
+        )
+
+    return connectors
 
 
 def write_map_ply(output_path: Path, step: float = 0.05, profile: str = "realistic") -> int:
@@ -782,7 +836,10 @@ def write_obj(output_path: Path, profile: str = "realistic") -> dict[str, object
             "stairs": {
                 "flight_count": count_stair_groups(boxes),
                 "staircase_count": count_stair_groups(boxes),
-                "total_steps": scene_profile_summary(profile).get("steps_total", max_stair_step_count(boxes)),
+                "total_steps": count_stair_steps(boxes),
+                "reference_stair_steps": scene_profile_summary(profile).get(
+                    "steps_total", max_stair_step_count(boxes)
+                ),
                 "steps_per_flight": scene_profile_summary(profile).get(
                     "steps_per_flight", max_stair_step_count(boxes)
                 ),
@@ -844,7 +901,8 @@ def main() -> None:
         f"{metadata['terrain_features']['stairs']['total_steps']} total steps"
     )
     if metadata["profile"] == "realistic":
-        print("  realistic stair: 20 steps, 0.15m rise, 0.28m tread, mid landing at 1.5m")
+        print("  realistic main stair: 20 steps, 0.15m rise, 0.28m tread, mid landing at 1.5m")
+        print(f"  stair connectors: {len(metadata['connectors'])}")
     print(f"  sampled map points: {point_count}")
 
 

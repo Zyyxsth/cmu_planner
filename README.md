@@ -74,7 +74,8 @@ The current Gazebo test world defaults to a fixed realistic 2.5D whitebox terrai
 - `36m x 36m` flat floor
 - 4 fixed ramps with different lengths and rises
 - 4 fixed single steps with `0.08m`, `0.10m`, and `0.15m` heights
-- 1 realistic split stair with two flights, a middle landing, and 20 total steps
+- 1 realistic south split stair with two flights, a middle landing, and 20 total steps
+- 1 north service stair connector candidate for testing cross-floor connector selection
 - each realistic stair step has `0.15m` rise, `0.28m` tread, and `1.2m` width
 - 1 second-floor landing at `3.0m`
 - D1 visual model loaded from `src/D1`
@@ -156,11 +157,11 @@ python3 scripts/probe_whitebox_terrain_topics.py \
 
 `two_floor_round_trip` is a scenario alias: it first publishes `two_floor_goal` to reach the second floor, then publishes `floor2_to_floor1_goal` with first-floor height so the router must use the reverse stair connector.
 
-Validated round-trip probe run: `logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json` reached both segments. The upstairs segment ended at `final_odom_z=3.75m`, and the downstairs segment ended at `final_odom_z=0.75m`.
+Validated round-trip probe runs include `logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json` and `logs/whitebox_terrain_probe/20260503_193442_multi_connector_round_trip/summary.json`. Both reached the upstairs and downstairs segments with upstairs `final_odom_z=3.75m` and downstairs `final_odom_z=0.75m`.
 
 For the multi-level realistic scene, Gazebo still provides the planner-facing lidar and terrain maps. Two whitebox-only helpers use the generated scene metadata: `/whitebox_vehicle_terrain_map` feeds `vehicleSimulator` an unambiguous current floor height, and `whitebox_stair_goal_router.py` routes only cross-floor goals through the known stair connector.
 
-The generated scene metadata now exposes stair connectivity explicitly through `connectors`. The realistic profile writes a `south_split_stair_connector` entry with:
+The generated scene metadata now exposes stair connectivity explicitly through `connectors`. The realistic profile writes two entries: `south_split_stair_connector` for the main two-flight stair and `north_service_stair_connector` for a second candidate entrance used to validate connector selection. Each entry includes:
 
 - `lower_floor` / `upper_floor`
 - `lower_entry_goal` / `upper_entry_goal`
@@ -168,7 +169,7 @@ The generated scene metadata now exposes stair connectivity explicitly through `
 - `allowed_directions`
 - `controller: stair_policy_placeholder`
 
-`whitebox_stair_goal_router.py` reads this connector first and only falls back to object-name inference for older metadata. This makes the stair connection a planner-facing data structure instead of a private router hardcode.
+`whitebox_stair_goal_router.py` reads these connectors first and only falls back to object-name inference for older metadata. When multiple connectors are available, it selects by current robot position to entry plus connector exit to final goal distance. This makes the stair connection a planner-facing data structure instead of a private router hardcode.
 
 The router is intentionally segmented:
 
@@ -741,13 +742,12 @@ This round focused on making the **real-robot exploration workflow repeatable**,
 - 2.5D slope / stair planning now has a Gazebo simulation baseline.
   - Completed on branch `codex/gazebo-two-floor-whitebox`:
     - Gazebo whitebox terrain backend using the existing `/cmd_vel`, `/state_estimation`, `/registered_scan`, FAR, local planner, and `vehicleSimulator` contracts.
-    - realistic 2.5D scene with flat ground, ramps, single steps, split stair, mid landing, and second-floor landing.
+    - realistic 2.5D scene with flat ground, ramps, single steps, split stair, north service stair, mid landing, and second-floor landing.
     - RViz goal height modes for distinguishing first-floor and second-floor goals at the same XY projection.
     - whitebox stair router based on current odom floor and target goal floor.
     - bidirectional stair connector validation through `two_floor_round_trip`.
-    - explicit scene metadata `connectors` for the stair topology.
+    - explicit scene metadata `connectors` for the stair topology, including multiple candidate stair connectors.
   - Remaining simulation-first work:
-    - add multiple candidate stairs / entrances to the Gazebo scene to exercise the connector selector beyond the current single-stair case.
     - publish cross-floor route state and selected connector for RViz/Foxglove inspection.
     - promote the current router split into a planner-facing `floor_path -> connector -> floor_path` representation.
     - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.

@@ -19,8 +19,9 @@
 - 默认 `realistic` 场景为 `36m x 36m` 平地
 - `4` 段固定缓坡，包含不同坡长和升高
 - `4` 个固定单台阶，高度包含 `0.08m`、`0.10m`、`0.15m`
-- `1` 个更真实的两跑楼梯，中间有休息平台
-- 楼梯总共 `20` 级，每级高 `0.15m`、进深 `0.28m`、宽 `1.2m`
+- `1` 个更真实的南侧两跑楼梯，中间有休息平台
+- `1` 个北侧候选楼梯，用来验证“远处跨层目标先选择合适楼梯入口”
+- 主楼梯总共 `20` 级，北侧候选楼梯也为 `20` 级，每级高 `0.15m`、进深 `0.28m`、宽 `1.2m`
 - 中间平台高度 `1.50m`
 - `1` 个二楼平台，高度 `3.00m`
 
@@ -261,7 +262,12 @@ logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json
 
 注意：真实多楼层白盒场景里，一楼和二楼可能在 XY 上重叠。Gazebo lidar 和 planner-facing `/terrain_map` 仍然来自真实点云；但 `vehicleSimulator` 的高度跟随会单独订阅 `/whitebox_vehicle_terrain_map`。这个 topic 由 `scripts/publish_whitebox_vehicle_terrain_map.py` 根据生成的 metadata 发布，只用于 kinematic simulator 的当前楼层高度，避免 `vehicleSimulator` 在二楼 XY 下误选一楼高度。
 
-现在生成的场景 metadata 里已经有显式 `connectors` 字段。`realistic` profile 会写入一个 `south_split_stair_connector`，包含：
+现在生成的场景 metadata 里已经有显式 `connectors` 字段。`realistic` profile 会写入两条楼梯 connector：
+
+- `south_split_stair_connector`：南侧两跑楼梯，带中间休息平台，是默认回归路径。
+- `north_service_stair_connector`：北侧候选楼梯，用来验证 connector selector 是否会根据当前位置和目标位置选择更近入口。
+
+每条 connector 都包含：
 
 - `lower_floor` / `upper_floor`
 - `lower_entry_goal` / `upper_entry_goal`
@@ -269,9 +275,9 @@ logs/whitebox_terrain_probe/20260428_163140_round_trip/summary.json
 - `allowed_directions`
 - `controller: stair_policy_placeholder`
 
-`whitebox_stair_goal_router.py` 会优先读取这个 connector；只有旧 metadata 没有 `connectors` 时，才回退到原先根据 object 名字反推楼梯路径的逻辑。这样楼梯连接关系不再只是 router 私有硬编码，而是后续 planner / RL policy 切换都可以读取的 2.5D 拓扑数据。
+`whitebox_stair_goal_router.py` 会优先读取这些 connector；只有旧 metadata 没有 `connectors` 时，才回退到原先根据 object 名字反推楼梯路径的逻辑。这样楼梯连接关系不再只是 router 私有硬编码，而是后续 planner / RL policy 切换都可以读取的 2.5D 拓扑数据。
 
-跨楼层目标现在由 `whitebox_stair_goal_router.py` 处理。它订阅正常 `/goal_point`，用当前 odom 楼层和目标高度楼层决定是否需要楼梯 connector：一楼到二楼走正向 connector，二楼到一楼走反向 connector。同楼层目标不拆段，直接交给 FAR。connector 段通过 `/whitebox_vehicle_pose_override` 连续推进 `vehicleSimulator`。这不是轮足真实接触动力学，也不是最终 RL 策略；它的作用是先证明“一楼目标和二楼目标可以通过一个显式 2.5D 楼梯连接器连通”，并让 Gazebo/RViz/点云接口继续保持可观测。
+跨楼层目标现在由 `whitebox_stair_goal_router.py` 处理。它订阅正常 `/goal_point`，用当前 odom 楼层和目标高度楼层决定是否需要楼梯 connector：一楼到二楼走正向 connector，二楼到一楼走反向 connector。同楼层目标不拆段，直接交给 FAR。存在多条 connector 时，router 用“当前位置到入口距离 + connector 出口到最终目标距离”选择代价最低的楼梯。connector 段通过 `/whitebox_vehicle_pose_override` 连续推进 `vehicleSimulator`。这不是轮足真实接触动力学，也不是最终 RL 策略；它的作用是先证明“一楼目标和二楼目标可以通过一个显式 2.5D 楼梯连接器连通”，并让 Gazebo/RViz/点云接口继续保持可观测。
 
 当前已验证的一次二楼 probe：
 
