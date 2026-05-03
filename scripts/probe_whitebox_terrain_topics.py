@@ -522,7 +522,7 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(publish_joy=True)
     parser.add_argument("--joy-forward-axis", type=float, default=0.8, help="Synthetic joystick forward axis for autonomy speed.")
     parser.add_argument("--odom-topic", default="/state_estimation")
-    parser.add_argument("--topics", nargs="+", default=["/registered_scan", "/terrain_map", "/terrain_map_ext"])
+    parser.add_argument("--topics", nargs="+", default=["/registered_scan", "/terrain_map", "/terrain_map_ext", "/terrain_class"])
     parser.add_argument("--frame-id", default="map")
     parser.add_argument("--probe", default="", help="Comma-separated probe names. Empty runs all default probes.")
     parser.add_argument("--margin", type=float, default=0.05)

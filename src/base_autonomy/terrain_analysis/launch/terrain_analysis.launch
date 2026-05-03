@@ -4,6 +4,7 @@
   <arg name="registeredScanTopic" default="/registered_scan"/>
   <arg name="mapClearingTopic" default="/map_clearing"/>
   <arg name="terrainMapTopic" default="/terrain_map"/>
+  <arg name="terrainClassTopic" default="/terrain_class"/>
   <arg name="vehicleHeight" default="1.5"/>
 
   <node pkg="terrain_analysis" exec="terrainAnalysis" name="terrainAnalysis" output="screen">
@@ -33,10 +34,16 @@
     <param name="minRelZ" value="-1.5" />
     <param name="maxRelZ" value="0.3" />
     <param name="disRatioZ" value="0.2" />
+    <param name="enableTerrainClassDebug" value="true" />
+    <param name="terrainClassFlatHeightThre" value="0.05" />
+    <param name="terrainClassSlopeHeightDiffThre" value="0.08" />
+    <param name="terrainClassStairEdgeHeightDiffThre" value="0.18" />
+    <param name="terrainClassVerticalObstacleHeightThre" value="0.30" />
     <param name="stateEstimationTopic" value="$(var stateEstimationTopic)" />
     <param name="registeredScanTopic" value="$(var registeredScanTopic)" />
     <param name="mapClearingTopic" value="$(var mapClearingTopic)" />
     <param name="terrainMapTopic" value="$(var terrainMapTopic)" />
+    <param name="terrainClassTopic" value="$(var terrainClassTopic)" />
   </node>
 
 </launch>

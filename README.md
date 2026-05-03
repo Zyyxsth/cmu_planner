@@ -747,7 +747,7 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - bidirectional stair connector validation through `two_floor_round_trip`.
     - explicit scene metadata `connectors` for the stair topology.
   - Remaining simulation-first work:
-    - make `terrainAnalysis` / `terrainAnalysisExt` produce planner-usable terrain classes such as flat, slope, stair edge, and obstacle.
+    - validate the first `/terrain_class` debug output from `terrainAnalysis`, then extend the same classification idea into `terrainAnalysisExt`.
     - make `localPlanner` consume those classes instead of relying only on a single height threshold.
     - validate ramp traversal separately from stair connector traversal.
     - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.

@@ -60,6 +60,16 @@ double voxelTimeUpdateThre = 2.0;
 double minRelZ = -1.5;
 double maxRelZ = 0.2;
 double disRatioZ = 0.2;
+bool enableTerrainClassDebug = true;
+double terrainClassFlatHeightThre = 0.05;
+double terrainClassSlopeHeightDiffThre = 0.08;
+double terrainClassStairEdgeHeightDiffThre = 0.18;
+double terrainClassVerticalObstacleHeightThre = 0.30;
+
+const float TERRAIN_CLASS_FLAT_GROUND = 1.0;
+const float TERRAIN_CLASS_TRAVERSABLE_SLOPE = 2.0;
+const float TERRAIN_CLASS_STEP_OR_STAIR_EDGE = 3.0;
+const float TERRAIN_CLASS_VERTICAL_OBSTACLE = 4.0;
 
 // terrain voxel parameters
 float terrainVoxelSize = 1.0;
@@ -85,6 +95,8 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr
     terrainCloud(new pcl::PointCloud<pcl::PointXYZI>());
 pcl::PointCloud<pcl::PointXYZI>::Ptr
     terrainCloudElev(new pcl::PointCloud<pcl::PointXYZI>());
+pcl::PointCloud<pcl::PointXYZI>::Ptr
+    terrainCloudClass(new pcl::PointCloud<pcl::PointXYZI>());
 pcl::PointCloud<pcl::PointXYZI>::Ptr terrainVoxelCloud[terrainVoxelNum];
 
 int terrainVoxelUpdateNum[terrainVoxelNum] = {0};
@@ -200,6 +212,50 @@ void clearingHandler(const std_msgs::msg::Float32::ConstSharedPtr dis) {
   clearingCloud = true;
 }
 
+float localTerrainHeightDiff(int indX, int indY) {
+  float maxDiff = 0.0;
+  int centerInd = planarVoxelWidth * indX + indY;
+  int centerCount = planarPointElev[centerInd].size();
+  if (centerCount < minBlockPointNum) {
+    return maxDiff;
+  }
+
+  for (int dX = -1; dX <= 1; dX++) {
+    for (int dY = -1; dY <= 1; dY++) {
+      if (dX == 0 && dY == 0) {
+        continue;
+      }
+      int nX = indX + dX;
+      int nY = indY + dY;
+      if (nX >= 0 && nX < planarVoxelWidth && nY >= 0 && nY < planarVoxelWidth) {
+        int neighborInd = planarVoxelWidth * nX + nY;
+        if (static_cast<int>(planarPointElev[neighborInd].size()) >= minBlockPointNum) {
+          float diff = fabs(planarVoxelElev[centerInd] - planarVoxelElev[neighborInd]);
+          if (diff > maxDiff) {
+            maxDiff = diff;
+          }
+        }
+      }
+    }
+  }
+  return maxDiff;
+}
+
+float terrainClassLabel(float disZ, float localHeightDiff) {
+  if (disZ >= terrainClassVerticalObstacleHeightThre) {
+    return TERRAIN_CLASS_VERTICAL_OBSTACLE;
+  }
+  if (disZ >= terrainClassStairEdgeHeightDiffThre ||
+      localHeightDiff >= terrainClassStairEdgeHeightDiffThre) {
+    return TERRAIN_CLASS_STEP_OR_STAIR_EDGE;
+  }
+  if (localHeightDiff >= terrainClassSlopeHeightDiffThre ||
+      disZ >= terrainClassFlatHeightThre) {
+    return TERRAIN_CLASS_TRAVERSABLE_SLOPE;
+  }
+  return TERRAIN_CLASS_FLAT_GROUND;
+}
+
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
   auto nh = rclcpp::Node::make_shared("terrainAnalysis");
@@ -207,6 +263,7 @@ int main(int argc, char **argv) {
   std::string registeredScanTopic = "/registered_scan";
   std::string mapClearingTopic = "/map_clearing";
   std::string terrainMapTopic = "/terrain_map";
+  std::string terrainClassTopic = "/terrain_class";
 
   nh->declare_parameter<double>("scanVoxelSize", scanVoxelSize);
   nh->declare_parameter<double>("decayTime", decayTime);
@@ -234,12 +291,18 @@ int main(int argc, char **argv) {
   nh->declare_parameter<double>("minRelZ", minRelZ);
   nh->declare_parameter<double>("maxRelZ", maxRelZ);
   nh->declare_parameter<double>("disRatioZ", disRatioZ);
+  nh->declare_parameter<bool>("enableTerrainClassDebug", enableTerrainClassDebug);
+  nh->declare_parameter<double>("terrainClassFlatHeightThre", terrainClassFlatHeightThre);
+  nh->declare_parameter<double>("terrainClassSlopeHeightDiffThre", terrainClassSlopeHeightDiffThre);
+  nh->declare_parameter<double>("terrainClassStairEdgeHeightDiffThre", terrainClassStairEdgeHeightDiffThre);
+  nh->declare_parameter<double>("terrainClassVerticalObstacleHeightThre", terrainClassVerticalObstacleHeightThre);
   nh->declare_parameter<std::string>("stateEstimationTopic",
                                      stateEstimationTopic);
   nh->declare_parameter<std::string>("registeredScanTopic",
                                      registeredScanTopic);
   nh->declare_parameter<std::string>("mapClearingTopic", mapClearingTopic);
   nh->declare_parameter<std::string>("terrainMapTopic", terrainMapTopic);
+  nh->declare_parameter<std::string>("terrainClassTopic", terrainClassTopic);
 
   nh->get_parameter("scanVoxelSize", scanVoxelSize);
   nh->get_parameter("decayTime", decayTime);
@@ -267,10 +330,16 @@ int main(int argc, char **argv) {
   nh->get_parameter("minRelZ", minRelZ);
   nh->get_parameter("maxRelZ", maxRelZ);
   nh->get_parameter("disRatioZ", disRatioZ);
+  nh->get_parameter("enableTerrainClassDebug", enableTerrainClassDebug);
+  nh->get_parameter("terrainClassFlatHeightThre", terrainClassFlatHeightThre);
+  nh->get_parameter("terrainClassSlopeHeightDiffThre", terrainClassSlopeHeightDiffThre);
+  nh->get_parameter("terrainClassStairEdgeHeightDiffThre", terrainClassStairEdgeHeightDiffThre);
+  nh->get_parameter("terrainClassVerticalObstacleHeightThre", terrainClassVerticalObstacleHeightThre);
   nh->get_parameter("stateEstimationTopic", stateEstimationTopic);
   nh->get_parameter("registeredScanTopic", registeredScanTopic);
   nh->get_parameter("mapClearingTopic", mapClearingTopic);
   nh->get_parameter("terrainMapTopic", terrainMapTopic);
+  nh->get_parameter("terrainClassTopic", terrainClassTopic);
 
   auto subOdometry = nh->create_subscription<nav_msgs::msg::Odometry>(
       stateEstimationTopic, 5, odometryHandler);
@@ -285,6 +354,8 @@ int main(int argc, char **argv) {
 
   auto pubLaserCloud = nh->create_publisher<sensor_msgs::msg::PointCloud2>(
       terrainMapTopic, 2);
+  auto pubTerrainClassCloud = nh->create_publisher<sensor_msgs::msg::PointCloud2>(
+      terrainClassTopic, 2);
 
   for (int i = 0; i < terrainVoxelNum; i++) {
     terrainVoxelCloud[i].reset(new pcl::PointCloud<pcl::PointXYZI>());
@@ -503,7 +574,7 @@ int main(int argc, char **argv) {
 
                 float dis4 = sqrt(pointX4 * pointX4 + pointY4 * pointY4);
                 float angle4 = atan2(pointZ4, dis4) * 180.0 / PI;
-                if (angle4 > minDyObsVFOV && angle4 < maxDyObsVFOV || fabs(pointZ4) < absDyObsRelZThre) {
+                if ((angle4 > minDyObsVFOV && angle4 < maxDyObsVFOV) || fabs(pointZ4) < absDyObsRelZThre) {
                   planarVoxelDyObs[planarVoxelWidth * indX + indY]++;
                 }
               }
@@ -588,6 +659,7 @@ int main(int argc, char **argv) {
       }
 
       terrainCloudElev->clear();
+      terrainCloudClass->clear();
       int terrainCloudElevSize = 0;
       for (int i = 0; i < terrainCloudSize; i++) {
         point = terrainCloud->points[i];
@@ -620,6 +692,12 @@ int main(int argc, char **argv) {
                 terrainCloudElev->push_back(point);
                 terrainCloudElev->points[terrainCloudElevSize].intensity = disZ;
 
+                if (enableTerrainClassDebug) {
+                  pcl::PointXYZI classPoint = point;
+                  float localHeightDiff = localTerrainHeightDiff(indX, indY);
+                  classPoint.intensity = terrainClassLabel(disZ, localHeightDiff);
+                  terrainCloudClass->push_back(classPoint);
+                }
                 terrainCloudElevSize++;
               }
             }
@@ -685,6 +763,12 @@ int main(int argc, char **argv) {
 
             point.x -= planarVoxelSize / 2.0;
             terrainCloudElev->push_back(point);
+
+            if (enableTerrainClassDebug) {
+              pcl::PointXYZI classPoint = point;
+              classPoint.intensity = TERRAIN_CLASS_VERTICAL_OBSTACLE;
+              terrainCloudClass->push_back(classPoint);
+            }
           }
         }
       }
@@ -697,6 +781,14 @@ int main(int argc, char **argv) {
       terrainCloud2.header.stamp = rclcpp::Time(static_cast<uint64_t>(laserCloudTime * 1e9));
       terrainCloud2.header.frame_id = "map";
       pubLaserCloud->publish(terrainCloud2);
+
+      if (enableTerrainClassDebug) {
+        sensor_msgs::msg::PointCloud2 terrainClassCloud2;
+        pcl::toROSMsg(*terrainCloudClass, terrainClassCloud2);
+        terrainClassCloud2.header.stamp = rclcpp::Time(static_cast<uint64_t>(laserCloudTime * 1e9));
+        terrainClassCloud2.header.frame_id = "map";
+        pubTerrainClassCloud->publish(terrainClassCloud2);
+      }
     }
 
     // status = ros::ok();

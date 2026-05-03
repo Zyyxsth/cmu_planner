@@ -396,13 +396,14 @@
 
 ### Milestone C：地形分类
 
-- [ ] 在 `terrainAnalysis` 中增加局部坡度 / 连续性特征
+- [x] 在 `terrainAnalysis` 中增加第一版局部高度连续性调试分类输出 `/terrain_class`
+- [ ] 在 `terrainAnalysisExt` 中增加局部坡度 / 连续性特征
 - [ ] 区分：
-  - [ ] 平地
-  - [ ] 缓坡
-  - [ ] 台阶/楼梯边缘
-  - [ ] 竖直障碍
-- [ ] 为分类结果增加调试输出，例如 debug cloud intensity / label topic
+  - [x] 平地
+  - [x] 缓坡
+  - [x] 台阶/楼梯边缘
+  - [x] 竖直障碍
+- [x] 为分类结果增加调试输出：`/terrain_class` 点云 intensity 使用 `1=flat_ground`、`2=traversable_slope`、`3=step_or_stair_edge`、`4=vertical_obstacle`
 - [ ] 用 Gazebo 白盒 probe 对比 `registered_scan`、`terrain_map`、`terrain_map_ext` 中的坡道和楼梯边缘统计
 
 ### Milestone D：导航规划

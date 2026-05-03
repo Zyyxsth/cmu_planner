@@ -168,6 +168,23 @@ python3 scripts/analyze_whitebox_terrain_map.py --topic /terrain_map
 
 在这个白盒场景里，`terrain_class` 会使用已知区域 metadata 作为验证先验，再结合实测高度和 `intensity` 统计输出分类。它现在只是调试标签，用来验证 2.5D 数据链路，不是最终 planner 策略。
 
+`terrainAnalysis` 现在还会额外发布 `/terrain_class` 调试点云。这个 topic 不会改变 `/terrain_map`，也不会直接影响 `localPlanner`；它只是把当前局部地形的初步类别写进 point intensity：
+
+- `1.0`：`flat_ground`
+- `2.0`：`traversable_slope`
+- `3.0`：`step_or_stair_edge`
+- `4.0`：`vertical_obstacle`
+
+分类依据是现有 `terrainAnalysis` 已经计算出的局部 ground elevation、点相对地面高度 `disZ` 和邻域高度差。第一版只用于 RViz/Foxglove/probe 调试，后续确认稳定后再让 `localPlanner` 消费这些类别。
+
+当前 smoke 验证结果：
+
+```text
+logs/whitebox_terrain_probe/20260503_191309_terrain_class_smoke/topic_overview.csv
+```
+
+该次 `flat_center` probe 中 `/terrain_class` 有 `7474` 个点，`intensity` 范围为 `1.0..4.0`，说明调试分类 topic 已经实际发布并被 probe 采样。
+
 坡道和楼梯还会输出方向信息：
 
 - `traversal_axis`：从低到高的通行方向
@@ -198,7 +215,7 @@ python3 scripts/probe_whitebox_terrain_topics.py
 - 向 `/goal_point` 发布和 RViz goalpoint 等价的目标点
 - 向 `/joy` 发布自动模式输入，打开 autonomy 并给一个非零前进速度
 - 等待 `/state_estimation` 接近每个固定测试点
-- 分别采样 `/registered_scan`、`/terrain_map`、`/terrain_map_ext`
+- 分别采样 `/registered_scan`、`/terrain_map`、`/terrain_map_ext`、`/terrain_class`
 - 把结果写到 `logs/whitebox_terrain_probe/<timestamp>/`
 
 输出文件包括：
