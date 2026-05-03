@@ -406,8 +406,14 @@
 - [x] 为分类结果增加调试输出：`/terrain_class` 点云 intensity 使用 `1=flat_ground`、`2=traversable_slope`、`3=step_or_stair_edge`、`4=vertical_obstacle`
 - [ ] 用 Gazebo 白盒 probe 对比 `registered_scan`、`terrain_map`、`terrain_map_ext` 中的坡道和楼梯边缘统计
 
+说明：地形分类当前只作为调试输入，不作为主线阻塞项。跨层导航可以先假设楼梯 connector 已知或可被识别，优先把任务层路由和楼梯入口选择做好。
+
 ### Milestone D：导航规划
 
+- [x] 将 metadata `connectors` 接入白盒 router
+- [x] 跨层目标根据当前楼层和目标楼层选择楼梯 connector
+- [x] connector 选择代价包含“当前位置到楼梯入口”和“楼梯出口到最终目标”
+- [x] connector selector 改动后重新通过 `two_floor_round_trip --require-goal-z`
 - [ ] 让 `localPlanner` 使用新的地形分类
 - [ ] 缓坡场景下生成连续路径
 - [ ] 楼梯场景下先稳定判成不可直接通过
@@ -429,13 +435,22 @@
 
 ## 6.1 当前下一步 TODO
 
-当前不建议继续扩展白盒 router 规则。下一步应该把信息从“白盒 connector 能通”推进到“planner 能理解局部地形”：
+当前主线应该先把“已知楼梯 connector 下的跨层任务路由”做扎实。也就是说，可以先假设楼梯已经被识别出来，重点验证：远处给二楼目标时，系统能选择合适楼梯入口、先走到入口、切换楼梯段、上楼后再接回二楼目标。
 
-1. 在 `terrainAnalysis` / `terrainAnalysisExt` 中增加坡度、局部高度连续性和高度突变统计。
-2. 增加一个调试输出，能在 RViz/Foxglove 中区分 `flat_ground`、`traversable_slope`、`step_or_stair_edge`、`vertical_obstacle`。
-3. 用已有 Gazebo probes 跑固定对比，确认缓坡和楼梯边缘在分类上可区分。
-4. 再让 `localPlanner` 使用这些分类：先允许缓坡，楼梯边缘默认不可直接通过。
-5. 最后再评估是否把 metadata `connectors` 接入 FAR 图搜索，替代当前 router 分段。
+1. 在 metadata 中支持多条 stair connector，并在场景里增加第二条候选楼梯或候选入口。
+2. 用当前位置到入口、出口到目标的代价选择 connector，验证远处二楼目标会先去合适入口。
+3. 把 connector 选择结果和分段状态发布成可视化 topic，方便在 RViz/Foxglove 里确认路线决策。
+4. 把当前 router 分段进一步抽象成 planner-facing cross-floor route：`floor_path -> connector -> floor_path`。
+5. 再考虑把 metadata `connectors` 接入 FAR 图搜索，逐步替代当前 router 分段。
+6. 地形分类继续保留为 debug/shadow input，等跨层任务路由稳定后再接入 `localPlanner`。
+
+当前 connector selector 回归验证：
+
+```text
+logs/whitebox_terrain_probe/20260503_192121_connector_selector_round_trip/summary.json
+```
+
+该次上楼段最终 `final_odom_z=3.75m`，下楼段最终 `final_odom_z=0.75m`，两个分段均 `status=reached`。
 
 ## 7. 我们下一步最适合从哪里开始
 

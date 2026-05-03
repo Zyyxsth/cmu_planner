@@ -747,10 +747,11 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - bidirectional stair connector validation through `two_floor_round_trip`.
     - explicit scene metadata `connectors` for the stair topology.
   - Remaining simulation-first work:
-    - validate the first `/terrain_class` debug output from `terrainAnalysis`, then extend the same classification idea into `terrainAnalysisExt`.
-    - make `localPlanner` consume those classes instead of relying only on a single height threshold.
-    - validate ramp traversal separately from stair connector traversal.
+    - add multiple candidate stairs / entrances to the Gazebo scene to exercise the connector selector beyond the current single-stair case.
+    - publish cross-floor route state and selected connector for RViz/Foxglove inspection.
+    - promote the current router split into a planner-facing `floor_path -> connector -> floor_path` representation.
     - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.
+    - keep `/terrain_class` as debug/shadow input until the task-level cross-floor route is stable.
   - Later work:
     - shadow-mode real robot logging on ramps / stair approaches.
     - controlled real stair tests only after the simulation classification and local-planning behavior are stable.

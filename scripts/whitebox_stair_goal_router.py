@@ -55,19 +55,21 @@ class WhiteboxStairRoute:
         objects = {str(obj["name"]): obj for obj in metadata["objects"]}
         self.vehicle_height = vehicle_height
         self.floor2 = objects.get("floor_2_south_landing")
-        self.stair_connector = self._select_stair_connector(metadata.get("connectors", []))
+        self.stair_connectors = self._load_stair_connectors(metadata.get("connectors", []))
+        self.stair_connector = self.stair_connectors[0] if self.stair_connectors else None
         self.lower_steps = self._sorted_steps(objects, "stair_realistic_lower")
         self.upper_steps = self._sorted_steps(objects, "stair_realistic_upper")
         self.mid_landing = objects.get("mid_landing_realistic")
 
     @staticmethod
-    def _select_stair_connector(connectors: object) -> Optional[dict[str, object]]:
+    def _load_stair_connectors(connectors: object) -> list[dict[str, object]]:
         if not isinstance(connectors, list):
-            return None
-        for connector in connectors:
-            if isinstance(connector, dict) and connector.get("connector_kind") == "stair":
-                return connector
-        return None
+            return []
+        return [
+            connector
+            for connector in connectors
+            if isinstance(connector, dict) and connector.get("connector_kind") == "stair"
+        ]
 
     @staticmethod
     def _sorted_steps(objects: dict[str, dict[str, object]], group_name: str) -> list[dict[str, object]]:
@@ -79,7 +81,7 @@ class WhiteboxStairRoute:
         return sorted(steps, key=lambda obj: int(obj.get("step_index", 0)))
 
     def has_realistic_stair(self) -> bool:
-        return bool(self.floor2 and (self.stair_connector or (self.mid_landing and self.lower_steps and self.upper_steps)))
+        return bool(self.floor2 and (self.stair_connectors or (self.mid_landing and self.lower_steps and self.upper_steps)))
 
     def is_second_floor_goal(self, goal: PointStamped) -> bool:
         goal_surface_z = self.surface_goal_z(float(goal.point.z))
@@ -96,14 +98,64 @@ class WhiteboxStairRoute:
             return raw_z - self.vehicle_height
         return raw_z
 
-    def stair_preentry_goal(self) -> RoutedGoal:
-        goal = self._connector_goal("lower_entry_goal")
+    def select_connector(
+        self,
+        current_floor: int,
+        target_floor: int,
+        odom: Optional[Odometry],
+        final_goal: RoutedGoal,
+    ) -> Optional[dict[str, object]]:
+        direction = None
+        if current_floor == 1 and target_floor == 2:
+            direction = "up"
+        elif current_floor == 2 and target_floor == 1:
+            direction = "down"
+        if direction is None or not self.stair_connectors:
+            return self.stair_connector
+
+        candidates = [
+            connector
+            for connector in self.stair_connectors
+            if direction in connector.get("allowed_directions", [direction])
+        ]
+        if not candidates:
+            candidates = self.stair_connectors
+        return min(candidates, key=lambda connector: self._connector_cost(connector, direction, odom, final_goal))
+
+    def connector_name(self, connector: Optional[dict[str, object]]) -> str:
+        if connector is None:
+            return "legacy_object_inference"
+        return str(connector.get("name", "unnamed_stair_connector"))
+
+    def _connector_cost(
+        self,
+        connector: dict[str, object],
+        direction: str,
+        odom: Optional[Odometry],
+        final_goal: RoutedGoal,
+    ) -> float:
+        entry_key = "lower_entry_goal" if direction == "up" else "upper_entry_goal"
+        exit_key = "upper_entry_goal" if direction == "up" else "lower_entry_goal"
+        entry_goal = self._connector_goal(entry_key, connector)
+        exit_goal = self._connector_goal(exit_key, connector)
+        if entry_goal is None or exit_goal is None:
+            return math.inf
+
+        robot_cost = 0.0
+        if odom is not None:
+            pos = odom.pose.pose.position
+            robot_cost = math.hypot(float(pos.x) - entry_goal.x, float(pos.y) - entry_goal.y)
+        goal_cost = math.hypot(final_goal.x - exit_goal.x, final_goal.y - exit_goal.y)
+        return robot_cost + goal_cost
+
+    def stair_preentry_goal(self, connector: Optional[dict[str, object]] = None) -> RoutedGoal:
+        goal = self._connector_goal("lower_entry_goal", connector)
         if goal is not None:
             return goal
         return RoutedGoal("stair_preentry", -4.0, -1.8, 0.0)
 
-    def floor2_entry_goal(self) -> RoutedGoal:
-        goal = self._connector_goal("upper_entry_goal")
+    def floor2_entry_goal(self, connector: Optional[dict[str, object]] = None) -> RoutedGoal:
+        goal = self._connector_goal("upper_entry_goal", connector)
         if goal is not None:
             return goal
         if self.floor2 is None or not self.upper_steps:
@@ -120,8 +172,8 @@ class WhiteboxStairRoute:
         start_y = max(floor_y_min + 0.45, min(floor_y_max - 0.6, top_y + 0.55))
         return RoutedGoal("floor2_entry", start_x, start_y, floor_z)
 
-    def stair_connector_up_route(self) -> list[RoutedGoal]:
-        route = self._connector_route("up_route")
+    def stair_connector_up_route(self, connector: Optional[dict[str, object]] = None) -> list[RoutedGoal]:
+        route = self._connector_route("up_route", connector)
         if route:
             return route
 
@@ -133,11 +185,11 @@ class WhiteboxStairRoute:
         route.append(RoutedGoal("mid_landing_realistic", x, y, float(self.mid_landing["z_max"])))
 
         route.extend(self._step_goals(self.upper_steps))
-        route.append(self.floor2_entry_goal())
+        route.append(self.floor2_entry_goal(connector))
         return route
 
-    def stair_connector_down_route(self) -> list[RoutedGoal]:
-        route = self._connector_route("down_route")
+    def stair_connector_down_route(self, connector: Optional[dict[str, object]] = None) -> list[RoutedGoal]:
+        route = self._connector_route("down_route", connector)
         if route:
             return route
 
@@ -149,10 +201,15 @@ class WhiteboxStairRoute:
         route.append(RoutedGoal("mid_landing_realistic", x, y, float(self.mid_landing["z_max"])))
 
         route.extend(reversed(self._step_goals(self.lower_steps)))
-        route.append(self.stair_preentry_goal())
+        route.append(self.stair_preentry_goal(connector))
         return route
 
-    def build_floor2_far_route(self, final_goal: RoutedGoal, spacing: float) -> list[RoutedGoal]:
+    def build_floor2_far_route(
+        self,
+        final_goal: RoutedGoal,
+        spacing: float,
+        connector: Optional[dict[str, object]] = None,
+    ) -> list[RoutedGoal]:
         if self.floor2 is None or not self.upper_steps:
             return [final_goal]
 
@@ -162,7 +219,7 @@ class WhiteboxStairRoute:
         floor_y_max = float(self.floor2["y_max"])
         floor_z = float(self.floor2["z_max"])
 
-        entry_goal = self.floor2_entry_goal()
+        entry_goal = self.floor2_entry_goal(connector)
         start_x = entry_goal.x
         start_y = entry_goal.y
         end_x = max(floor_x_min + 0.6, min(floor_x_max - 0.6, final_goal.x))
@@ -197,18 +254,20 @@ class WhiteboxStairRoute:
             goals.append(RoutedGoal(str(step["name"]), x, y, float(step["z_max"])))
         return goals
 
-    def _connector_goal(self, key: str) -> Optional[RoutedGoal]:
-        if self.stair_connector is None:
+    def _connector_goal(self, key: str, connector: Optional[dict[str, object]] = None) -> Optional[RoutedGoal]:
+        active_connector = connector if connector is not None else self.stair_connector
+        if active_connector is None:
             return None
-        raw_goal = self.stair_connector.get(key)
+        raw_goal = active_connector.get(key)
         if not isinstance(raw_goal, dict):
             return None
         return self._goal_from_dict(raw_goal)
 
-    def _connector_route(self, key: str) -> list[RoutedGoal]:
-        if self.stair_connector is None:
+    def _connector_route(self, key: str, connector: Optional[dict[str, object]] = None) -> list[RoutedGoal]:
+        active_connector = connector if connector is not None else self.stair_connector
+        if active_connector is None:
             return []
-        raw_route = self.stair_connector.get(key)
+        raw_route = active_connector.get(key)
         if not isinstance(raw_route, list):
             return []
         route = []
@@ -303,17 +362,20 @@ class WhiteboxStairGoalRouter(Node):
             float(msg.point.y),
             self.route.surface_goal_z(float(msg.point.z)),
         )
+        connector = self.route.select_connector(1, 2, self.last_odom, self.pending_final_goal)
+        floor2_entry_goal = self.route.floor2_entry_goal(connector)
         self.post_stair_far_route = self.route.build_floor2_far_route(
-            self.pending_final_goal, self.args.floor2_far_spacing
+            self.pending_final_goal, self.args.floor2_far_spacing, connector
         )
-        self.stair_connector_route = self.route.stair_connector_up_route()
-        if self.post_stair_far_route and self.post_stair_far_route[0].name == "floor2_entry":
+        self.stair_connector_route = self.route.stair_connector_up_route(connector)
+        if self.post_stair_far_route and self.post_stair_far_route[0].name == floor2_entry_goal.name:
             # The final stair-to-platform transition belongs to the stair
             # controller handoff. FAR resumes after this point.
             self.post_stair_far_route.pop(0)
-        self._start_segment(STATE_TO_ENTRY, [self.route.stair_preentry_goal()], force_publish=True)
+        self._start_segment(STATE_TO_ENTRY, [self.route.stair_preentry_goal(connector)], force_publish=True)
         self.get_logger().info(
-            "Routing floor1->floor2 goal: FAR to stair_preentry, stair executor for "
+            f"Routing floor1->floor2 via {self.route.connector_name(connector)}: FAR to stair entry, "
+            "stair executor for "
             f"{len(self.stair_connector_route)} connector goals, FAR through "
             f"{len(self.post_stair_far_route)} upstairs goals."
         )
@@ -324,11 +386,13 @@ class WhiteboxStairGoalRouter(Node):
             return
 
         self.pending_final_goal = self._goal_from_msg("final_goal", msg)
+        connector = self.route.select_connector(2, 1, self.last_odom, self.pending_final_goal)
         self.post_stair_far_route = [self.pending_final_goal]
-        self.stair_connector_route = self.route.stair_connector_down_route()
-        self._start_segment(STATE_TO_ENTRY, [self.route.floor2_entry_goal()], force_publish=True)
+        self.stair_connector_route = self.route.stair_connector_down_route(connector)
+        self._start_segment(STATE_TO_ENTRY, [self.route.floor2_entry_goal(connector)], force_publish=True)
         self.get_logger().info(
-            "Routing floor2->floor1 goal: FAR to floor2_entry, stair executor for "
+            f"Routing floor2->floor1 via {self.route.connector_name(connector)}: FAR to stair entry, "
+            "stair executor for "
             f"{len(self.stair_connector_route)} connector goals, FAR to final floor1 goal."
         )
 
