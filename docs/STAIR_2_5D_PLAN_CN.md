@@ -521,6 +521,14 @@ down_north_choice north_service_stair_connector
 
 如果目标是“探索任务自动把一楼和二楼都探索完”，完整版本应按下面路线推进，而不是只做一个最小可验证 demo。
 
+### 开发约束：先保护原有探索逻辑
+
+- [ ] 多楼层探索原型优先新增文件或复制现有文件再改，例如 `*_multifloor.*`、`*_whitebox.*`、`*_floor_aware.*`。
+- [ ] 原有 TARE / exploration 核心文件默认不直接修改，避免破坏当前已能工作的单层探索逻辑。
+- [ ] 新增独立 launch / config 启用多楼层探索实验，原有 launch / config 必须保持可运行。
+- [ ] 如果必须改原文件，只允许做最小 opt-in hook，例如参数开关、topic remap 或 manager 入口，并在提交说明里明确原因。
+- [ ] 每次触碰探索相关代码前，以 tag `gazebo-two-floor-whitebox-v0.1` 作为回退基线。
+
 ### Step 1：先把探索系统改成 floor-aware
 
 - [ ] 给探索状态增加当前 `floor_id` 和目标 `floor_id`。

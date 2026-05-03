@@ -753,6 +753,7 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.
     - keep `/terrain_class` as debug/shadow input until the task-level cross-floor route is stable.
     - extend the plan from point-goal routing to complete multi-floor exploration: floor-aware frontier / coverage state, stair connector task graph, cross-floor exploration decisions, and return-home across floors.
+    - preserve the existing exploration stack while prototyping: create copied or new `*_multifloor` / `*_whitebox` files and separate launch/config entries instead of editing original TARE / exploration core files directly, except for minimal opt-in hooks.
   - Later work:
     - online stair detection from `/terrain_class` / `/terrain_map_ext`, replacing the current metadata-only connector prior.
     - shadow-mode real robot logging on ramps / stair approaches.
