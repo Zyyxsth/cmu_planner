@@ -422,11 +422,62 @@
 - [x] Gazebo 白盒 FAR 配置已保留 `/goal_point.z`，用于一楼 / 二楼目标区分
 - [ ] 全面梳理普通模式、探索模式、真实机器人模式下 goal `z` 的保留与重投影规则
 
-### Milestone E：探索适配
+### Milestone E：完整多楼层探索
 
-- [ ] 调整 viewpoint 连通性在坡道场景下的行为
-- [ ] 调整 frontier / uncovered 逻辑，避免坡道导致过早完成
-- [ ] 验证从低层探索到高层坡道终点时不会太早 return-home
+完整目标不是“给一个二楼点能上去”，而是让探索任务自己覆盖一楼和二楼。系统需要能在探索过程中发现或读取楼梯 connector，把楼梯作为跨层边加入任务图，然后在每一层分别维护 frontier、coverage、viewpoint 和完成状态。
+
+#### E1：多楼层表达和地图状态
+
+- [ ] 定义 `floor_id`：至少支持 `floor_1`、`floor_2`，后续扩展到更多楼层。
+- [ ] 定义每个 floor 的高度范围、默认 odom 高度、surface 高度和切换阈值。
+- [ ] 将探索地图状态按 floor 分开维护，避免一楼和二楼同 XY 投影互相覆盖。
+- [ ] 将 frontier / uncovered / covered / viewpoint 都带上 floor 语义。
+- [ ] 定义同一 `(x, y)` 在多楼层下如何存储多个高度候选。
+- [ ] 明确 TARE viewpoint / exploration path 的高度参考，避免二楼 viewpoint 被压回一楼。
+
+#### E2：楼梯发现和 connector 生成
+
+- [ ] 第一阶段允许从先验地图 / metadata 读取 connector，作为“楼梯已识别”的输入。
+- [ ] 第二阶段从 `/terrain_class`、`/terrain_map_ext`、高度连续性和边缘方向中检测候选楼梯区域。
+- [ ] 估计楼梯入口、出口、通行方向、宽度、台阶高度、台阶进深和楼层连接关系。
+- [ ] 区分正面可通行楼梯和侧面不可通行高台边缘。
+- [ ] 给每条 connector 维护置信度、观测次数、最近更新时间和是否可通行。
+- [ ] 支持多条候选 connector，并允许后续观测更新 connector 位置和方向。
+
+#### E3：跨层探索任务图
+
+- [ ] 建立 floor graph：每个楼层是一个子图，楼梯 connector 是楼层之间的特殊边。
+- [ ] 定义跨层任务状态：`EXPLORE_FLOOR`、`GO_TO_CONNECTOR_ENTRY`、`CONNECTOR_EXEC`、`RESUME_EXPLORE`、`RETURN_HOME`。
+- [ ] 在当前楼层 frontier 价值不足、目标要求覆盖全部楼层或发现高价值楼梯后，触发跨层切换。
+- [ ] connector 选择代价包含当前位置到入口、出口到目标探索区域、connector 置信度和方向可行性。
+- [ ] 支持从一楼探索到二楼，也支持二楼探索完成后返回一楼或返回起点。
+- [ ] 记录已经访问过的楼层，避免在同一条楼梯上来回震荡。
+
+#### E4：与现有 planner / controller 的接口
+
+- [ ] 普通楼层内导航继续交给 FAR / localPlanner / TARE。
+- [ ] connector 入口前的导航仍使用普通 `/goal_point` 或 routed floor goal。
+- [ ] connector 段明确切换到 stair policy / RL policy / 仿真 pose override。
+- [ ] connector 执行完成后，重新初始化或刷新当前 floor 的局部探索状态。
+- [ ] 定义跨层失败处理：入口到不了、connector 执行失败、出口不可通行、目标楼层无有效 frontier。
+- [ ] 去掉或收敛当前白盒 `POST_STAIR_EXEC_FALLBACK`，让失败状态变成显式任务结果。
+
+#### E5：多楼层探索完成判定
+
+- [ ] 每个 floor 独立计算 coverage、frontier 数量、uncovered cloud 和 viewpoint 候选。
+- [ ] 全局探索完成条件必须是所有已发现 / 任务要求楼层都完成，而不是当前楼层完成就 return-home。
+- [ ] 支持“发现楼梯但尚未探索上层”时阻止提前结束。
+- [ ] 支持任务参数指定是否必须探索所有可达楼层，还是只探索当前楼层。
+- [ ] return-home 需要能从二楼经 connector 回到起始楼层和起始点。
+
+#### E6：可视化、日志和验收
+
+- [ ] 发布当前 `floor_id`、目标 floor、选中 connector、connector 状态和跨层任务状态。
+- [ ] 在 RViz/Foxglove 中显示每层 frontier、viewpoint、coverage 和 connector graph。
+- [ ] 记录跨层探索事件：发现楼梯、选择楼梯、进入楼梯、离开楼梯、切换 floor、探索完成。
+- [ ] 增加自动 probe：一楼随机起点，要求完成一楼和二楼 coverage。
+- [ ] 增加失败 probe：楼梯侧面接近、楼梯入口被障碍遮挡、二楼无 frontier、connector 置信度不足。
+- [ ] 验收标准包括覆盖率、跨层次数、是否提前 return-home、是否错误混淆上下层地图、是否能回到起点。
 
 ### Milestone F：实机验证
 
@@ -465,6 +516,60 @@ down_north_choice north_service_stair_connector
 ```
 
 这说明 selector 不再只是固定走一条楼梯；它会根据当前 odom、目标楼层和最终目标位置选择南侧或北侧 connector。下一步需要把这个选择结果发布出来，让 RViz/Foxglove 能直接看到当前跨层任务选中了哪条 connector、处于哪个分段状态。
+
+## 6.2 完整多楼层探索 TODO
+
+如果目标是“探索任务自动把一楼和二楼都探索完”，完整版本应按下面路线推进，而不是只做一个最小可验证 demo。
+
+### Step 1：先把探索系统改成 floor-aware
+
+- [ ] 给探索状态增加当前 `floor_id` 和目标 `floor_id`。
+- [ ] 将 viewpoint、frontier、uncovered cloud、covered cells 按楼层分组。
+- [ ] 保证同 XY 的一楼点和二楼点不会互相覆盖、互相终止或互相解释成同一个 frontier。
+- [ ] 梳理 TARE 中所有 goal / viewpoint / path 的 `z` 重投影逻辑。
+- [ ] 在 RViz/Foxglove 里能单独查看每一层探索状态。
+
+### Step 2：把楼梯作为探索图中的特殊边
+
+- [ ] 定义统一 `StairConnector` 数据结构，字段包括入口、出口、通行方向、连接楼层、置信度、可通行状态和控制策略。
+- [ ] 当前先从 metadata 加载 connector，后续替换为在线识别。
+- [ ] 将 connector 加入 exploration task graph，而不是只放在 whitebox router 私有逻辑里。
+- [ ] 支持多条 connector，并能根据任务代价选择一条。
+- [ ] 让 connector 的状态可视化和可记录。
+
+### Step 3：做探索中的跨层决策
+
+- [ ] 当前楼层仍有有效 frontier 时，优先完成当前楼层探索。
+- [ ] 当前楼层 frontier 价值不足但存在未探索楼层 connector 时，规划到楼梯入口。
+- [ ] 进入 connector 前检查正面接近、入口可达和 controller 可用。
+- [ ] connector 执行完成后切换当前 floor，并恢复该楼层探索。
+- [ ] 如果 connector 失败，需要标记该 connector 暂不可用，而不是无限重试。
+
+### Step 4：补齐两层覆盖和 return-home 逻辑
+
+- [ ] 全局探索完成条件改成“任务要求的所有可达楼层都完成”。
+- [ ] 二楼探索完成后，如果任务要求回家，需要从二楼经 connector 返回起始楼层。
+- [ ] 起点所在 floor、home pose 和 return path 都要带 floor 语义。
+- [ ] 防止系统在一楼探索完但还没上二楼时提前 return-home。
+- [ ] 防止系统在二楼探索时把一楼 uncovered / frontier 当成当前楼层目标。
+
+### Step 5：再做在线楼梯识别
+
+- [ ] 使用 `/terrain_class` 和 `/terrain_map_ext` 检测台阶序列、坡度突变和竖直边缘。
+- [ ] 从候选区域估计楼梯朝向、入口侧、出口侧和连接高度。
+- [ ] 侧面看到楼梯时先当障碍边界，不生成可通行 connector。
+- [ ] 多次观测融合后再提升 connector 置信度。
+- [ ] 只有置信度、宽度、高度和方向满足要求时，才允许探索任务使用该 connector。
+
+### Step 6：完整验收场景
+
+- [ ] 仿真一：已知 metadata connector，两层都必须探索完。
+- [ ] 仿真二：多个 connector，机器人从不同起点自动选择不同楼梯。
+- [ ] 仿真三：楼梯入口被障碍遮挡，系统应选择另一条 connector 或报告不可达。
+- [ ] 仿真四：只从侧面看到楼梯，系统不得侧向上楼。
+- [ ] 仿真五：二楼探索完成后自动返回一楼起点。
+- [ ] 实机 shadow mode：只记录楼梯候选和任务决策，不执行上楼。
+- [ ] 实机受控测试：确认入口选择和 policy handoff，再执行真实上楼。
 
 ## 7. 我们下一步最适合从哪里开始
 
