@@ -37,6 +37,39 @@ The interface mapping is:
 
 This means the route planner, local planner, waypoint follower, `/cmd_vel`, `/state_estimation`, and `/registered_scan` contracts remain aligned with the Unity simulation path. Gazebo is currently used as a visual and point-cloud backend, not as a wheel / leg contact dynamics simulator.
 
+## Gazebo Exploration Simulation
+
+The first Gazebo exploration path keeps the original TARE exploration strategy and only swaps the Unity simulation interface for Gazebo sensing:
+
+- Gazebo publishes `/lidar/points`
+- `registeredScanFromOdom` converts Gazebo lidar plus `/state_estimation` into `/registered_scan`
+- `registeredScanFromOdom` also publishes `/state_estimation_at_scan` for TARE
+- `terrain_analysis` and `terrain_analysis_ext` keep publishing `/terrain_map` and `/terrain_map_ext`
+- the original `tare_planner_node` consumes the same exploration topics and publishes `/way_point`
+- `localPlanner`, `pathFollower`, and `vehicleSimulator` keep the same `/way_point -> /cmd_vel -> /state_estimation` loop
+
+Run it with:
+
+```bash
+./system_simulation_with_exploration_planner_gazebo.sh
+```
+
+For a headless smoke test:
+
+```bash
+./system_simulation_with_exploration_planner_gazebo.sh --no-rviz
+```
+
+To try the packaged Unity office as a Gazebo scene, use the office profile:
+
+```bash
+./system_simulation_with_exploration_planner_gazebo.sh --scene-profile office
+```
+
+This office profile is a Gazebo-loadable box approximation generated from Unity `AssetList.csv`, `Dimensions.csv`, `Categories.csv`, and `traversable_area.ply`. The generated preview scene now fits floor plates to the wall envelope, then adds a shifted second-floor copy of the same office map at `z=3.0m`, offset by about `+Y 50.94m`, plus an exterior 20-step stair connector whose top step directly abuts the second-floor wall opening. The stair entries are carved only within the stair-width corridor, preserving the surrounding wall segments so the planner does not treat adjacent closed rooms as newly explorable. This keeps the lower and upper floors visually separated in Gazebo/RViz while preserving the same floor layout on both levels. To regenerate only the original single-floor approximation, run `python3 scripts/generate_unity_office_gazebo_scene.py --single-floor`.
+
+This is intentionally only an interface-swap baseline. It does not yet make TARE floor-aware, does not add stair connectors to the exploration graph, and does not change the original exploration core.
+
 ### Build
 
 For the Gazebo route-planner path, build at least:
@@ -77,7 +110,8 @@ The current Gazebo test world defaults to a fixed realistic 2.5D whitebox terrai
 - 1 realistic south split stair with two flights, a middle landing, and 20 total steps
 - 1 north service stair connector candidate for testing cross-floor connector selection
 - each realistic stair step has `0.15m` rise, `0.28m` tread, and `1.2m` width
-- 1 second-floor landing at `3.0m`
+- 1 larger, opaque second-floor landing at `3.0m`
+- enclosed outer walls, several interior partition walls, second-floor railings, and support columns
 - D1 visual model loaded from `src/D1`
 - lidar mounted at the ROS `sensor` frame so the generated cloud follows `/state_estimation`
 

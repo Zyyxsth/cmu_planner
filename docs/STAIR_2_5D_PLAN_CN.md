@@ -529,6 +529,13 @@ down_north_choice north_service_stair_connector
 - [ ] 如果必须改原文件，只允许做最小 opt-in hook，例如参数开关、topic remap 或 manager 入口，并在提交说明里明确原因。
 - [ ] 每次触碰探索相关代码前，以 tag `gazebo-two-floor-whitebox-v0.1` 作为回退基线。
 
+### Step 0：先验证探索接口替换
+
+- [x] 新增独立 Gazebo exploration 启动链路：`system_simulation_with_exploration_planner_gazebo.sh`。
+- [x] 保持原始 TARE exploration 策略不变，只把 Unity 感知替换为 Gazebo lidar。
+- [x] Gazebo `/lidar/points` 通过 `registeredScanFromOdom` 转成 `/registered_scan`，并同步发布 TARE 需要的 `/state_estimation_at_scan`。
+- [x] 冒烟测试已确认 `tare_planner_node` 启动、`Exploration Started`、`localPlanner` 收到 `/way_point`、`pathFollower` 进入 `autonomy=true`。
+
 ### Step 1：先把探索系统改成 floor-aware
 
 - [ ] 给探索状态增加当前 `floor_id` 和目标 `floor_id`。

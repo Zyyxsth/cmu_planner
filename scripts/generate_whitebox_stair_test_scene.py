@@ -13,6 +13,7 @@ The default realistic scene contains:
 - a split two-flight staircase with a mid landing
 - a second service staircase for connector-selection tests
 - a 3.0m second-floor landing connected by 20 x 0.15m steps
+- an enclosed indoor shell with interior partitions, upper-floor railings, and support columns
 """
 
 from __future__ import annotations
@@ -123,6 +124,12 @@ def write_box(lines: list[str], vertex_offset: int, normal_offset: int, spec: Bo
         lines.append("usemtl floor\n")
     elif spec.terrain_kind in {"floor_2", "mid_landing"}:
         lines.append("usemtl upper_floor\n")
+    elif spec.terrain_kind == "wall":
+        lines.append("usemtl wall\n")
+    elif spec.terrain_kind == "railing":
+        lines.append("usemtl railing\n")
+    elif spec.terrain_kind == "support":
+        lines.append("usemtl support\n")
     elif spec.name.startswith("single_step"):
         lines.append("usemtl step\n")
     elif spec.name.startswith("stair_"):
@@ -368,12 +375,191 @@ def build_compact_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
     return boxes, build_common_ramps()
 
 
+def add_static_box(
+    boxes: list[BoxSpec],
+    name: str,
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    z_min: float,
+    z_max: float,
+    terrain_kind: str,
+) -> None:
+    boxes.append(
+        BoxSpec(
+            name=name,
+            x_min=x_min,
+            x_max=x_max,
+            y_min=y_min,
+            y_max=y_max,
+            z_min=z_min,
+            z_max=z_max,
+            terrain_kind=terrain_kind,
+        )
+    )
+
+
+def add_indoor_shell(boxes: list[BoxSpec], half_extent: float) -> None:
+    wall_thickness = 0.22
+    wall_height = 3.30
+    add_static_box(
+        boxes,
+        "wall_outer_west",
+        -half_extent - wall_thickness,
+        -half_extent,
+        -half_extent - wall_thickness,
+        half_extent + wall_thickness,
+        0.0,
+        wall_height,
+        "wall",
+    )
+    add_static_box(
+        boxes,
+        "wall_outer_east",
+        half_extent,
+        half_extent + wall_thickness,
+        -half_extent - wall_thickness,
+        half_extent + wall_thickness,
+        0.0,
+        wall_height,
+        "wall",
+    )
+    add_static_box(
+        boxes,
+        "wall_outer_south",
+        -half_extent - wall_thickness,
+        half_extent + wall_thickness,
+        -half_extent - wall_thickness,
+        -half_extent,
+        0.0,
+        wall_height,
+        "wall",
+    )
+    add_static_box(
+        boxes,
+        "wall_outer_north",
+        -half_extent - wall_thickness,
+        half_extent + wall_thickness,
+        half_extent,
+        half_extent + wall_thickness,
+        0.0,
+        wall_height,
+        "wall",
+    )
+
+    # Interior partitions stay away from the stair entries and default cross-floor route.
+    add_static_box(boxes, "wall_room_west_vertical", -13.2, -13.0, -15.5, -5.8, 0.0, 2.45, "wall")
+    add_static_box(boxes, "wall_room_west_south", -16.0, -10.8, -5.8, -5.6, 0.0, 2.45, "wall")
+    add_static_box(boxes, "wall_room_east_vertical", 13.4, 13.6, -13.5, -2.8, 0.0, 2.45, "wall")
+    add_static_box(boxes, "wall_room_east_north", 10.8, 16.2, 4.8, 5.0, 0.0, 2.45, "wall")
+    add_static_box(boxes, "wall_room_north_west", -10.0, -4.6, 11.6, 11.8, 0.0, 2.45, "wall")
+    add_static_box(boxes, "wall_room_north_east", 10.8, 15.8, 11.6, 11.8, 0.0, 2.45, "wall")
+
+
+def add_upper_floor_details(boxes: list[BoxSpec], floor2: BoxSpec) -> None:
+    rail_height = 0.85
+    rail_thickness = 0.12
+    rail_z_min = float(floor2.z_max)
+    rail_z_max = rail_z_min + rail_height
+
+    # Leave gaps at the south split-stair exit and north service-stair exit.
+    add_static_box(
+        boxes,
+        "railing_floor2_south_west",
+        float(floor2.x_min),
+        0.05,
+        float(floor2.y_min),
+        float(floor2.y_min) + rail_thickness,
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+    add_static_box(
+        boxes,
+        "railing_floor2_south_east",
+        1.35,
+        float(floor2.x_max),
+        float(floor2.y_min),
+        float(floor2.y_min) + rail_thickness,
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+    add_static_box(
+        boxes,
+        "railing_floor2_north_west",
+        float(floor2.x_min),
+        6.00,
+        float(floor2.y_max) - rail_thickness,
+        float(floor2.y_max),
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+    add_static_box(
+        boxes,
+        "railing_floor2_north_east",
+        7.70,
+        float(floor2.x_max),
+        float(floor2.y_max) - rail_thickness,
+        float(floor2.y_max),
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+    add_static_box(
+        boxes,
+        "railing_floor2_west",
+        float(floor2.x_min),
+        float(floor2.x_min) + rail_thickness,
+        float(floor2.y_min),
+        float(floor2.y_max),
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+    add_static_box(
+        boxes,
+        "railing_floor2_east",
+        float(floor2.x_max) - rail_thickness,
+        float(floor2.x_max),
+        float(floor2.y_min),
+        float(floor2.y_max),
+        rail_z_min,
+        rail_z_max,
+        "railing",
+    )
+
+    column_size = 0.28
+    for idx, (x, y) in enumerate(
+        [
+            (float(floor2.x_min) + 0.75, float(floor2.y_min) + 0.90),
+            (float(floor2.x_max) - 0.75, float(floor2.y_min) + 0.90),
+            (float(floor2.x_min) + 0.75, float(floor2.y_max) - 0.90),
+            (float(floor2.x_max) - 0.75, float(floor2.y_max) - 0.90),
+        ],
+        start=1,
+    ):
+        add_static_box(
+            boxes,
+            f"support_floor2_column_{idx:02d}",
+            x - column_size / 2.0,
+            x + column_size / 2.0,
+            y - column_size / 2.0,
+            y + column_size / 2.0,
+            0.0,
+            float(floor2.z_min),
+            "support",
+        )
+
+
 def build_realistic_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
     floor_half_extent = 18.0
     floor_z_min = -0.10
     floor_z_max = 0.0
     floor_cut_x_min = -3.20
-    floor_cut_x_max = 8.00
+    floor_cut_x_max = 11.00
     floor_cut_y_min = -2.40
     floor_cut_y_max = 9.00
     boxes: list[BoxSpec] = [
@@ -418,6 +604,7 @@ def build_realistic_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
             terrain_kind="floor",
         ),
     ]
+    add_indoor_shell(boxes, floor_half_extent)
     add_compact_test_features(boxes, include_debug_stairs=False)
 
     stair_rise = 0.15
@@ -480,20 +667,20 @@ def build_realistic_scene() -> tuple[list[BoxSpec], list[RampSpec]]:
     )
 
     second_run_top_y = mid_landing_y_max + stair_tread * run_steps
-    boxes.append(
-        BoxSpec(
-            name="floor_2_south_landing",
-            x_min=second_run_x_min,
-            x_max=8.00,
-            y_min=second_run_top_y,
-            y_max=9.00,
-            z_min=second_floor_z - 0.05,
-            z_max=second_floor_z,
-            terrain_kind="floor_2",
-            traversal_axis=(0.0, 1.0),
-            entry_side="y_min",
-        )
+    floor2 = BoxSpec(
+        name="floor_2_south_landing",
+        x_min=-0.60,
+        x_max=10.80,
+        y_min=second_run_top_y,
+        y_max=9.00,
+        z_min=second_floor_z - 0.12,
+        z_max=second_floor_z,
+        terrain_kind="floor_2",
+        traversal_axis=(0.0, 1.0),
+        entry_side="y_min",
     )
+    boxes.append(floor2)
+    add_upper_floor_details(boxes, floor2)
 
     add_y_staircase(
         boxes,
@@ -774,36 +961,72 @@ def write_obj(output_path: Path, profile: str = "realistic") -> dict[str, object
         "newmtl floor\n",
         "Ka 0.72 0.74 0.78\n",
         "Kd 0.72 0.74 0.78\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.04 0.04 0.04\n",
         "Ns 12.0\n",
         "\n",
         "newmtl upper_floor\n",
-        "Ka 0.52 0.68 0.74\n",
-        "Kd 0.52 0.68 0.74\n",
+        "Ka 0.34 0.54 0.62\n",
+        "Kd 0.34 0.54 0.62\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
+        "Ks 0.06 0.06 0.06\n",
+        "Ns 14.0\n",
+        "\n",
+        "newmtl wall\n",
+        "Ka 0.66 0.63 0.56\n",
+        "Kd 0.66 0.63 0.56\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
+        "Ks 0.04 0.04 0.04\n",
+        "Ns 10.0\n",
+        "\n",
+        "newmtl railing\n",
+        "Ka 0.18 0.22 0.24\n",
+        "Kd 0.18 0.22 0.24\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
+        "Ks 0.08 0.08 0.08\n",
+        "Ns 18.0\n",
+        "\n",
+        "newmtl support\n",
+        "Ka 0.32 0.34 0.34\n",
+        "Kd 0.32 0.34 0.34\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.05 0.05 0.05\n",
         "Ns 14.0\n",
         "\n",
         "newmtl obstacle\n",
         "Ka 0.78 0.28 0.18\n",
         "Kd 0.78 0.28 0.18\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.08 0.08 0.08\n",
         "Ns 18.0\n",
         "\n",
         "newmtl step\n",
         "Ka 0.24 0.48 0.84\n",
         "Kd 0.24 0.48 0.84\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.10 0.10 0.10\n",
         "Ns 20.0\n",
         "\n",
         "newmtl stair\n",
         "Ka 0.20 0.66 0.44\n",
         "Kd 0.20 0.66 0.44\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.10 0.10 0.10\n",
         "Ns 20.0\n",
         "\n",
         "newmtl accent\n",
         "Ka 0.85 0.60 0.18\n",
         "Kd 0.85 0.60 0.18\n",
+        "d 1.0\n",
+        "Tr 0.0\n",
         "Ks 0.10 0.10 0.10\n",
         "Ns 20.0\n",
     ]

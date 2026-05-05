@@ -17,6 +17,7 @@ from typing import Optional
 
 import rclpy
 from nav_msgs.msg import Odometry
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
@@ -146,6 +147,8 @@ def main() -> None:
     node = WhiteboxVehicleTerrainPublisher(parse_args())
     try:
         rclpy.spin(node)
+    except (ExternalShutdownException, KeyboardInterrupt):
+        pass
     finally:
         node.destroy_node()
         if rclpy.ok():

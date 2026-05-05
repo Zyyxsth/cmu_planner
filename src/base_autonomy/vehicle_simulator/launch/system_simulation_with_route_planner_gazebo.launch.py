@@ -279,6 +279,7 @@ def _write_world_file(context, *_args, **_kwargs):
   world_path = os.path.join(tempfile.gettempdir(), "cmu_planner_whitebox_gazebo.sdf")
   gui_config_path = os.path.join(tempfile.gettempdir(), "cmu_planner_whitebox_gazebo_gui.config")
   gui = LaunchConfiguration("gazebo_gui").perform(context)
+  world_name = LaunchConfiguration("world_name").perform(context)
   scene_mesh_path = os.path.abspath(LaunchConfiguration("scene_mesh_path").perform(context))
   sensor_visualize = "true" if gui == "true" else "false"
   d1_visuals = _load_d1_visuals(package_share)
@@ -286,7 +287,7 @@ def _write_world_file(context, *_args, **_kwargs):
 
   world_sdf = f"""<?xml version="1.0" ?>
 <sdf version="1.8">
-  <world name="whitebox_stair_test">
+  <world name="{world_name}">
     <gravity>0 0 -9.8</gravity>
 
     <plugin filename="ignition-gazebo-physics-system" name="gz::sim::systems::Physics"/>
@@ -458,6 +459,7 @@ def _write_world_file(context, *_args, **_kwargs):
 
 def generate_launch_description():
   route_planner_config = LaunchConfiguration("route_planner_config")
+  goal_topic = LaunchConfiguration("goal_topic")
   world_name = LaunchConfiguration("world_name")
   scene_map_path = LaunchConfiguration("scene_map_path")
   vehicle_height = LaunchConfiguration("vehicleHeight")
@@ -467,6 +469,8 @@ def generate_launch_description():
   terrain_z = LaunchConfiguration("terrainZ")
   vehicle_yaw = LaunchConfiguration("vehicleYaw")
   check_terrain_conn = LaunchConfiguration("checkTerrainConn")
+  vehicle_terrain_map_topic = LaunchConfiguration("vehicleTerrainMapTopic")
+  pose_override_topic = LaunchConfiguration("poseOverrideTopic")
 
   start_local_planner = IncludeLaunchDescription(
       FrontendLaunchDescriptionSource(
@@ -498,8 +502,8 @@ def generate_launch_description():
           "vehicleY": vehicle_y,
           "terrainZ": terrain_z,
           "vehicleYaw": vehicle_yaw,
-          "terrainMapTopic": "/whitebox_vehicle_terrain_map",
-          "poseOverrideTopic": "/whitebox_vehicle_pose_override",
+          "terrainMapTopic": vehicle_terrain_map_topic,
+          "poseOverrideTopic": pose_override_topic,
       }.items(),
   )
 
@@ -546,7 +550,7 @@ def generate_launch_description():
       launch_arguments={
           "config": route_planner_config,
           "use_sim_time": "true",
-          "goal_topic": "/routed_goal_point",
+          "goal_topic": goal_topic,
       }.items(),
   )
 
@@ -573,15 +577,18 @@ def generate_launch_description():
   )
 
   return LaunchDescription([
-      DeclareLaunchArgument("route_planner_config", default_value="whitebox_multilevel", description=""),
+      DeclareLaunchArgument("route_planner_config", default_value="indoor", description=""),
+      DeclareLaunchArgument("goal_topic", default_value="/goal_point", description=""),
       DeclareLaunchArgument("world_name", default_value="whitebox_stair_test", description=""),
       DeclareLaunchArgument("vehicleHeight", default_value="0.75", description=""),
       DeclareLaunchArgument("cameraOffsetZ", default_value="0.041", description=""),
-      DeclareLaunchArgument("vehicleX", default_value="-5.0", description=""),
-      DeclareLaunchArgument("vehicleY", default_value="-1.8", description=""),
+      DeclareLaunchArgument("vehicleX", default_value="0.0", description=""),
+      DeclareLaunchArgument("vehicleY", default_value="0.0", description=""),
       DeclareLaunchArgument("terrainZ", default_value="0.0", description=""),
       DeclareLaunchArgument("vehicleYaw", default_value="0.0", description=""),
       DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),
+      DeclareLaunchArgument("vehicleTerrainMapTopic", default_value="/terrain_map", description=""),
+      DeclareLaunchArgument("poseOverrideTopic", default_value="", description=""),
       DeclareLaunchArgument("gazebo_gui", default_value="true", description=""),
       DeclareLaunchArgument(
           "scene_mesh_path",

@@ -9,6 +9,8 @@ WHITEBOX_MODE=0
 GAZEBO_MODE=0
 NO_RVIZ=0
 SCENE_PROFILE="${WHITEBOX_SCENE_PROFILE:-realistic}"
+ROUTE_PLANNER_CONFIG=""
+GOAL_TOPIC="/goal_point"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,23 +28,31 @@ while [[ $# -gt 0 ]]; do
       ;;
     --scene-profile)
       if [[ $# -lt 2 ]]; then
-        echo "--scene-profile requires one value: realistic or compact"
+        echo "--scene-profile requires one value: realistic, compact, or office"
         exit 1
       fi
       SCENE_PROFILE="$2"
       shift 2
       ;;
+    --route-config)
+      if [[ $# -lt 2 ]]; then
+        echo "--route-config requires one FAR planner config name"
+        exit 1
+      fi
+      ROUTE_PLANNER_CONFIG="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--gazebo] [--whitebox] [--no-rviz] [--scene-profile realistic|compact]"
+      echo "Usage: $0 [--gazebo] [--whitebox] [--no-rviz] [--scene-profile realistic|compact|office] [--route-config CONFIG]"
       exit 1
       ;;
   esac
 done
 
-if [[ "$SCENE_PROFILE" != "realistic" && "$SCENE_PROFILE" != "compact" ]]; then
+if [[ "$SCENE_PROFILE" != "realistic" && "$SCENE_PROFILE" != "compact" && "$SCENE_PROFILE" != "office" ]]; then
   echo "Invalid scene profile: $SCENE_PROFILE"
-  echo "Expected: realistic or compact"
+  echo "Expected: realistic, compact, or office"
   exit 1
 fi
 
@@ -109,21 +119,55 @@ trap cleanup EXIT
 
 if [[ "$GAZEBO_MODE" -eq 1 ]]; then
   cleanup_stale_sim_processes
-  python3 scripts/generate_whitebox_stair_test_scene.py --profile "$SCENE_PROFILE" >/dev/null
-  SCENE_MESH_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.obj"
-  SCENE_MAP_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply"
-  SCENE_METADATA_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.json"
-  python3 scripts/publish_whitebox_vehicle_terrain_map.py \
-    --metadata "$SCENE_METADATA_PATH" &
-  WHITEBOX_TERRAIN_PID=$!
-  python3 scripts/whitebox_stair_goal_router.py \
-    --metadata "$SCENE_METADATA_PATH" &
-  WHITEBOX_GOAL_ROUTER_PID=$!
-  ros2 launch vehicle_simulator system_simulation_with_route_planner_gazebo.launch.py \
-    world_name:=whitebox_stair_test \
-    scene_mesh_path:="$SCENE_MESH_PATH" \
-    scene_map_path:="$SCENE_MAP_PATH" \
-    gazebo_gui:=$([[ "$NO_RVIZ" -eq 1 ]] && echo false || echo true) &
+  VEHICLE_X="0.0"
+  VEHICLE_Y="0.0"
+  VEHICLE_TERRAIN_MAP_TOPIC="/terrain_map"
+  POSE_OVERRIDE_TOPIC=""
+  if [[ "$SCENE_PROFILE" == "office" ]]; then
+    python3 scripts/generate_unity_office_gazebo_scene.py >/dev/null
+    WORLD_NAME="unity_office_gazebo"
+    SCENE_MESH_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/unity_office_gazebo/unity_office_gazebo.obj"
+    SCENE_MAP_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/unity_office_gazebo/map.ply"
+    SCENE_METADATA_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/unity_office_gazebo/unity_office_gazebo.json"
+    ROUTE_PLANNER_CONFIG="${ROUTE_PLANNER_CONFIG:-indoor}"
+  else
+    python3 scripts/generate_whitebox_stair_test_scene.py --profile "$SCENE_PROFILE" >/dev/null
+    WORLD_NAME="whitebox_stair_test"
+    SCENE_MESH_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.obj"
+    SCENE_MAP_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/map.ply"
+    SCENE_METADATA_PATH="$SCRIPT_DIR/src/base_autonomy/vehicle_simulator/mesh/whitebox_stair_test/whitebox_stair_test.json"
+    ROUTE_PLANNER_CONFIG="${ROUTE_PLANNER_CONFIG:-whitebox_multilevel}"
+    GOAL_TOPIC="/routed_goal_point"
+    VEHICLE_X="-5.0"
+    VEHICLE_Y="-1.8"
+    VEHICLE_TERRAIN_MAP_TOPIC="/whitebox_vehicle_terrain_map"
+    POSE_OVERRIDE_TOPIC="/whitebox_vehicle_pose_override"
+  fi
+  if [[ "$VEHICLE_TERRAIN_MAP_TOPIC" == "/whitebox_vehicle_terrain_map" ]]; then
+    python3 scripts/publish_whitebox_vehicle_terrain_map.py \
+      --metadata "$SCENE_METADATA_PATH" &
+    WHITEBOX_TERRAIN_PID=$!
+  fi
+  if [[ "$GOAL_TOPIC" == "/routed_goal_point" ]]; then
+    python3 scripts/whitebox_stair_goal_router.py \
+      --metadata "$SCENE_METADATA_PATH" &
+    WHITEBOX_GOAL_ROUTER_PID=$!
+  fi
+  LAUNCH_ARGS=(
+    "route_planner_config:=$ROUTE_PLANNER_CONFIG"
+    "goal_topic:=$GOAL_TOPIC"
+    "world_name:=$WORLD_NAME"
+    "vehicleX:=$VEHICLE_X"
+    "vehicleY:=$VEHICLE_Y"
+    "vehicleTerrainMapTopic:=$VEHICLE_TERRAIN_MAP_TOPIC"
+    "scene_mesh_path:=$SCENE_MESH_PATH"
+    "scene_map_path:=$SCENE_MAP_PATH"
+    "gazebo_gui:=$([[ "$NO_RVIZ" -eq 1 ]] && echo false || echo true)"
+  )
+  if [[ -n "$POSE_OVERRIDE_TOPIC" ]]; then
+    LAUNCH_ARGS+=("poseOverrideTopic:=$POSE_OVERRIDE_TOPIC")
+  fi
+  ros2 launch vehicle_simulator system_simulation_with_route_planner_gazebo.launch.py "${LAUNCH_ARGS[@]}" &
   LAUNCH_PID=$!
 elif [[ "$WHITEBOX_MODE" -eq 1 ]]; then
   python3 scripts/generate_whitebox_stair_test_scene.py --profile "$SCENE_PROFILE" >/dev/null
