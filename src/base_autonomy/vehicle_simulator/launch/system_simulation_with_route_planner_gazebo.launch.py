@@ -426,22 +426,6 @@ def _write_world_file(context, *_args, **_kwargs):
       base_gui_config = "/usr/share/ignition/ignition-gazebo6/gui/gui.config"
     with open(base_gui_config, "r", encoding="utf-8") as handle:
       gui_config = handle.read().rstrip()
-    if "VisualizeLidar" not in gui_config:
-      gui_config += """
-
-<plugin filename="VisualizeLidar" name="Visualize Lidar">
-  <ignition-gui>
-    <title>Visualize Lidar</title>
-    <property type="bool" key="showTitleBar">true</property>
-    <property type="bool" key="resizable">true</property>
-    <property type="double" key="x">25</property>
-    <property type="double" key="y">140</property>
-    <property type="double" key="width">360</property>
-    <property type="double" key="height">220</property>
-    <property type="string" key="state">floating</property>
-  </ignition-gui>
-</plugin>
-"""
     with open(gui_config_path, "w", encoding="utf-8") as handle:
       handle.write(gui_config + "\n")
     gz_args += f"--gui-config {shlex.quote(gui_config_path)} "

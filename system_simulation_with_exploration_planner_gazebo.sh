@@ -58,6 +58,9 @@ cleanup() {
   if [[ -n "${WHITEBOX_TERRAIN_PID:-}" ]]; then
     kill "$WHITEBOX_TERRAIN_PID" 2>/dev/null || true
   fi
+  if [[ -n "${BOUNDARY_PID:-}" ]]; then
+    kill "$BOUNDARY_PID" 2>/dev/null || true
+  fi
   if [[ -n "${TARE_LAUNCH_PID:-}" ]]; then
     kill "$TARE_LAUNCH_PID" 2>/dev/null || true
   fi
@@ -145,11 +148,13 @@ if [[ "$VEHICLE_TERRAIN_MAP_TOPIC" == "/whitebox_vehicle_terrain_map" ]]; then
 fi
 
 wait_for_nonzero_clock() {
+  echo "[gazebo_explore] Waiting for nonzero /clock..."
   local deadline=$((SECONDS + 30))
   while [[ "$SECONDS" -lt "$deadline" ]]; do
     local sec
     sec=$(timeout 2s ros2 topic echo /clock --once --field clock.sec 2>/dev/null | tr -dc '0-9' || true)
     if [[ -n "$sec" && "$sec" -gt 0 ]]; then
+      echo "[gazebo_explore] /clock is active."
       sleep 1
       return 0
     fi
@@ -157,6 +162,37 @@ wait_for_nonzero_clock() {
   done
   echo "Timed out waiting for nonzero /clock before starting TARE."
   return 1
+}
+
+wait_for_topic_sample() {
+  local topic="$1"
+  local timeout_sec="${2:-30}"
+  echo "[gazebo_explore] Waiting for $topic..."
+  local deadline=$((SECONDS + timeout_sec))
+  while [[ "$SECONDS" -lt "$deadline" ]]; do
+    if timeout 3s ros2 topic echo "$topic" --once >/dev/null 2>&1; then
+      echo "[gazebo_explore] $topic is active."
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for one message on $topic."
+  return 1
+}
+
+wait_for_exploration_inputs() {
+  wait_for_nonzero_clock || return 1
+  wait_for_topic_sample /state_estimation 30 || return 1
+  wait_for_topic_sample /lidar/points 30 || return 1
+  wait_for_topic_sample /registered_scan 30 || return 1
+  wait_for_topic_sample /state_estimation_at_scan 30 || return 1
+  wait_for_topic_sample /terrain_map 30 || return 1
+  wait_for_topic_sample /terrain_map_ext 30 || return 1
+}
+
+wait_for_exploration_visuals() {
+  wait_for_topic_sample /viewpoint_vis_cloud 30 || return 1
+  wait_for_topic_sample /selected_viewpoint_vis_cloud 30 || return 1
 }
 
 ros2 launch vehicle_simulator system_simulation_with_exploration_planner_gazebo.launch.py \
@@ -172,14 +208,32 @@ ros2 launch vehicle_simulator system_simulation_with_exploration_planner_gazebo.
   gazebo_gui:=$([[ "$NO_RVIZ" -eq 1 ]] && echo false || echo true) &
 LAUNCH_PID=$!
 
-wait_for_nonzero_clock
-ros2 launch tare_planner explore_world.launch \
+if ! wait_for_exploration_inputs; then
+  echo "Exploration inputs did not become ready; not starting TARE."
+  exit 1
+fi
+
+echo "[gazebo_explore] Starting navigation boundary before TARE auto-start."
+ros2 run tare_planner navigationBoundary --ros-args \
+  -p use_sim_time:=true \
+  -p boundary_file_dir:="$BOUNDARY_FILE" \
+  -p sendBoundary:=true \
+  -p sendBoundaryInterval:=2 &
+BOUNDARY_PID=$!
+
+if ! wait_for_topic_sample /navigation_boundary 30; then
+  echo "Navigation boundary did not become ready; not starting TARE."
+  exit 1
+fi
+
+echo "[gazebo_explore] Starting TARE exploration after Gazebo sensing inputs and boundary are ready."
+ros2 launch tare_planner explore.launch \
   use_sim_time:=true \
-  scenario:="$EXPLORATION_CONFIG" \
-  boundary_file:="$BOUNDARY_FILE" &
+  scenario:="$EXPLORATION_CONFIG" &
 TARE_LAUNCH_PID=$!
 
-sleep 1
+wait_for_exploration_visuals || echo "[gazebo_explore] Exploration visualization clouds not seen yet; continuing so RViz can attach."
+wait_for_topic_sample /way_point 20 || echo "[gazebo_explore] /way_point not seen yet; continuing so RViz can attach."
 
 if [[ "$NO_RVIZ" -eq 1 ]]; then
   wait "$LAUNCH_PID"
