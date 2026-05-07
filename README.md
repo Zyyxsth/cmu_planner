@@ -68,7 +68,13 @@ To try the packaged Unity office as a Gazebo scene, use the office profile:
 
 This office profile is a Gazebo-loadable box approximation generated from Unity `AssetList.csv`, `Dimensions.csv`, `Categories.csv`, and `traversable_area.ply`. The generated preview scene now fits floor plates to the wall envelope, then adds a shifted second-floor copy of the same office map at `z=3.0m`, offset by about `+Y 50.94m`, plus an exterior 20-step stair connector whose top step directly abuts the second-floor wall opening. The stair entries are carved only within the stair-width corridor, preserving the surrounding wall segments so the planner does not treat adjacent closed rooms as newly explorable. This keeps the lower and upper floors visually separated in Gazebo/RViz while preserving the same floor layout on both levels. To regenerate only the original single-floor approximation, run `python3 scripts/generate_unity_office_gazebo_scene.py --single-floor`.
 
-This is intentionally only an interface-swap baseline. It does not yet make TARE floor-aware, does not add stair connectors to the exploration graph, and does not change the original exploration core.
+The default office exploration command remains the interface-swap baseline and does not change the original exploration core. For the copied multi-level exploration path with a known stair prior, use:
+
+```bash
+./system_simulation_with_multilevel_exploration_gazebo.sh --scene-profile office
+```
+
+This copied path runs TARE as floor-scoped instances and keeps the original TARE core unchanged. Floor 1 publishes `/floor1/tare/way_point_raw`; floor 2 starts in gated standby mode under `/floor2` with `kAutoStart=false`, and the arbiter only releases `/floor2/state_estimation_at_scan`, `/floor2/registered_scan`, `/floor2/terrain_map`, `/floor2/terrain_map_ext`, and `/multilevel/start_floor2_tare` after the stair traversal finishes. This lets floor 2 record its own upstairs home instead of inheriting the first-floor odom. The arbiter republishes the active floor command on `/way_point`, adds the stair connector as a special frontier candidate, executes the stair connector up/down with the Gazebo pose override, and then returns to the recorded global initial home after floor 2 exploration finishes. It also relays the active floor's TARE visualization back to the original RViz topic names such as `/viewpoint_vis_cloud` and `/selected_viewpoint_vis_cloud`. The metadata is treated as simulation ground truth: by default the robot does not know the stair until it enters the configured discovery radius around the stair entry, which approximates "lidar has perceived the stair." It also publishes `/multilevel/stair_frontier_cloud`, `/multilevel/stair_connector_path`, and `/multilevel/stair_frontier_state` for RViz/Foxglove inspection. The original TARE node and the original Gazebo exploration wrapper remain available for single-floor regression tests.
 
 ### Build
 
@@ -781,12 +787,14 @@ This round focused on making the **real-robot exploration workflow repeatable**,
     - whitebox stair router based on current odom floor and target goal floor.
     - bidirectional stair connector validation through `two_floor_round_trip`.
     - explicit scene metadata `connectors` for the stair topology, including multiple candidate stair connectors.
+    - copied multi-level Gazebo exploration entry with floor-scoped TARE raw outputs, stair frontier arbiter, gated floor2 sensor/start release, active-floor RViz topic relay, and cross-floor return-home task state, keeping the original TARE exploration core unchanged.
   - Remaining simulation-first work:
     - publish cross-floor route state and selected connector for RViz/Foxglove inspection.
     - promote the current router split into a planner-facing `floor_path -> connector -> floor_path` representation.
     - remove or reduce the temporary post-stair fallback once FAR can natively connect post-stair goals.
     - keep `/terrain_class` as debug/shadow input until the task-level cross-floor route is stable.
-    - extend the plan from point-goal routing to complete multi-floor exploration: floor-aware frontier / coverage state, stair connector task graph, cross-floor exploration decisions, and return-home across floors.
+    - validate full-duration two-floor exploration in the office scene, especially floor2 completion, down-stair traversal, and long-distance floor1 return-home behavior.
+    - promote the current metadata stair prior to a proper floor-aware frontier / coverage state with multiple connector candidates and online discovery state.
     - preserve the existing exploration stack while prototyping: create copied or new `*_multifloor` / `*_whitebox` files and separate launch/config entries instead of editing original TARE / exploration core files directly, except for minimal opt-in hooks.
   - Later work:
     - online stair detection from `/terrain_class` / `/terrain_map_ext`, replacing the current metadata-only connector prior.

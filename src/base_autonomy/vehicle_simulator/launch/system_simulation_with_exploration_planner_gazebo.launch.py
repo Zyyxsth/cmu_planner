@@ -38,6 +38,7 @@ def generate_launch_description():
     vehicle_yaw = LaunchConfiguration("vehicleYaw")
     check_terrain_conn = LaunchConfiguration("checkTerrainConn")
     vehicle_terrain_map_topic = LaunchConfiguration("vehicleTerrainMapTopic")
+    pose_override_topic = LaunchConfiguration("poseOverrideTopic")
 
     start_local_planner = IncludeLaunchDescription(
         FrontendLaunchDescriptionSource(
@@ -75,6 +76,7 @@ def generate_launch_description():
             "terrainZ": terrain_z,
             "vehicleYaw": vehicle_yaw,
             "terrainMapTopic": vehicle_terrain_map_topic,
+            "poseOverrideTopic": pose_override_topic,
         }.items(),
     )
 
@@ -163,6 +165,7 @@ def generate_launch_description():
         DeclareLaunchArgument("vehicleYaw", default_value="0.0", description=""),
         DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),
         DeclareLaunchArgument("vehicleTerrainMapTopic", default_value="/terrain_map", description=""),
+        DeclareLaunchArgument("poseOverrideTopic", default_value="", description=""),
         DeclareLaunchArgument("gazebo_gui", default_value="true", description=""),
         DeclareLaunchArgument("launch_joy", default_value="true", description=""),
         DeclareLaunchArgument("launch_tare", default_value="true", description=""),
