@@ -1,0 +1,41 @@
+newmtl floor
+Ka 0.55 0.57 0.55
+Kd 0.55 0.57 0.55
+d 1.0
+Tr 0.0
+
+newmtl floor_2
+Ka 0.40 0.58 0.72
+Kd 0.40 0.58 0.72
+d 1.0
+Tr 0.0
+
+newmtl stair
+Ka 0.76 0.50 0.26
+Kd 0.76 0.50 0.26
+d 1.0
+Tr 0.0
+
+newmtl wall
+Ka 0.68 0.66 0.59
+Kd 0.68 0.66 0.59
+d 1.0
+Tr 0.0
+
+newmtl furniture
+Ka 0.54 0.36 0.22
+Kd 0.54 0.36 0.22
+d 1.0
+Tr 0.0
+
+newmtl support
+Ka 0.32 0.34 0.34
+Kd 0.32 0.34 0.34
+d 1.0
+Tr 0.0
+
+newmtl obstacle
+Ka 0.72 0.30 0.20
+Kd 0.72 0.30 0.20
+d 1.0
+Tr 0.0
