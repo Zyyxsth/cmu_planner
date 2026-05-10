@@ -50,8 +50,12 @@ DEFAULT_SECOND_FLOOR_HEIGHT = 3.0
 DEFAULT_STAIR_STEP_HEIGHT = 0.15
 DEFAULT_STAIR_TREAD = 0.30
 DEFAULT_STAIR_WIDTH = 2.4
+DEFAULT_STAIR_FLIGHT_WIDTH = 1.2
+DEFAULT_STAIR_LANDING_DEPTH = 1.4
 DEFAULT_STAIR_RAIL_HEIGHT = 0.55
 DEFAULT_STAIR_RAIL_THICKNESS = 0.12
+DEFAULT_PERIMETER_WALL_HEIGHT = 3.0
+DEFAULT_PERIMETER_WALL_THICKNESS = 0.24
 
 
 @dataclass(frozen=True)
@@ -411,17 +415,85 @@ def carve_connector_entry(
     return cleared, removed, modified
 
 
+def add_perimeter_walls(
+    boxes: list[BoxSpec],
+    floor: BoxSpec,
+    prefix: str,
+    z_min: float,
+    z_max: float,
+    north_opening: tuple[float, float] | None = None,
+    south_opening: tuple[float, float] | None = None,
+) -> list[BoxSpec]:
+    thickness = DEFAULT_PERIMETER_WALL_THICKNESS
+    walls: list[BoxSpec] = [
+        BoxSpec(
+            name=f"{prefix}_west_perimeter_wall",
+            x_min=floor.x_min - thickness,
+            x_max=floor.x_min,
+            y_min=floor.y_min,
+            y_max=floor.y_max,
+            z_min=z_min,
+            z_max=z_max,
+            terrain_kind="wall",
+            source_asset="generated_perimeter_wall",
+            source_class="wall",
+        ),
+        BoxSpec(
+            name=f"{prefix}_east_perimeter_wall",
+            x_min=floor.x_max,
+            x_max=floor.x_max + thickness,
+            y_min=floor.y_min,
+            y_max=floor.y_max,
+            z_min=z_min,
+            z_max=z_max,
+            terrain_kind="wall",
+            source_asset="generated_perimeter_wall",
+            source_class="wall",
+        ),
+    ]
+
+    def add_horizontal_segments(name: str, y_min: float, y_max: float, opening: tuple[float, float] | None) -> None:
+        if opening is None:
+            segments = [(floor.x_min, floor.x_max)]
+        else:
+            open_min = max(floor.x_min, opening[0])
+            open_max = min(floor.x_max, opening[1])
+            segments = [(floor.x_min, open_min), (open_max, floor.x_max)]
+        for index, (x_min, x_max) in enumerate(segments, 1):
+            if x_max - x_min <= 0.05:
+                continue
+            walls.append(
+                BoxSpec(
+                    name=f"{prefix}_{name}_perimeter_wall_{index}",
+                    x_min=x_min,
+                    x_max=x_max,
+                    y_min=y_min,
+                    y_max=y_max,
+                    z_min=z_min,
+                    z_max=z_max,
+                    terrain_kind="wall",
+                    source_asset="generated_perimeter_wall",
+                    source_class="wall",
+                )
+            )
+
+    add_horizontal_segments("south", floor.y_min - thickness, floor.y_min, south_opening)
+    add_horizontal_segments("north", floor.y_max, floor.y_max + thickness, north_opening)
+    return boxes + walls
+
+
 def add_shifted_second_floor(
     boxes: list[BoxSpec],
     height: float = DEFAULT_SECOND_FLOOR_HEIGHT,
 ) -> tuple[list[BoxSpec], dict[str, object], list[dict[str, object]]]:
     floor = boxes[0]
-    floor_depth = floor.y_max - floor.y_min
     x_offset = 0.0
+    y_offset = 0.0
     stair_count = int(round(height / DEFAULT_STAIR_STEP_HEIGHT))
     step_height = height / stair_count
-    stair_length = stair_count * DEFAULT_STAIR_TREAD
-    y_offset = floor_depth + stair_length
+    steps_per_flight = stair_count // 2
+    flight_rise = height * 0.5
+    flight_length = steps_per_flight * DEFAULT_STAIR_TREAD
 
     upper_boxes: list[BoxSpec] = []
     for spec in boxes:
@@ -430,29 +502,58 @@ def add_shifted_second_floor(
 
     upper_floor = upper_boxes[0]
     stair_x_center = max(floor.x_min + 4.0, min(floor.x_max - 4.0, floor.x_min + 0.35 * (floor.x_max - floor.x_min)))
-    stair_x_min = stair_x_center - DEFAULT_STAIR_WIDTH * 0.5
-    stair_x_max = stair_x_center + DEFAULT_STAIR_WIDTH * 0.5
+    flight_gap = 0.55
+    lower_flight_x_center = stair_x_center - (DEFAULT_STAIR_FLIGHT_WIDTH + flight_gap) * 0.5
+    upper_flight_x_center = stair_x_center + (DEFAULT_STAIR_FLIGHT_WIDTH + flight_gap) * 0.5
+    lower_flight_x_min = lower_flight_x_center - DEFAULT_STAIR_FLIGHT_WIDTH * 0.5
+    lower_flight_x_max = lower_flight_x_center + DEFAULT_STAIR_FLIGHT_WIDTH * 0.5
+    upper_flight_x_min = upper_flight_x_center - DEFAULT_STAIR_FLIGHT_WIDTH * 0.5
+    upper_flight_x_max = upper_flight_x_center + DEFAULT_STAIR_FLIGHT_WIDTH * 0.5
+    stair_x_min = lower_flight_x_min
+    stair_x_max = upper_flight_x_max
     stair_y_start = floor.y_max
-    stair_y_end = stair_y_start + stair_length
+    landing_y_min = stair_y_start + flight_length
+    landing_y_max = landing_y_min + DEFAULT_STAIR_LANDING_DEPTH
+    upper_y_end = stair_y_start
+    stair_y_end = landing_y_max
     clearance_margin = 0.12
     clearance_depth = 5.2
     clearance_x_min = stair_x_min - clearance_margin
     clearance_x_max = stair_x_max + clearance_margin
     lower_clearance = (clearance_x_min, clearance_x_max, floor.y_max - clearance_depth, stair_y_start + 0.35)
-    upper_clearance = (clearance_x_min, clearance_x_max, upper_floor.y_min - 0.35, upper_floor.y_min + clearance_depth)
+    upper_clearance = (clearance_x_min, clearance_x_max, floor.y_max - clearance_depth, stair_y_start + 0.35)
     boxes, lower_removed, lower_modified = carve_connector_entry(boxes, [lower_clearance])
     upper_boxes, upper_removed, upper_modified = carve_connector_entry(upper_boxes, [upper_clearance])
+    lower_stair_opening = (clearance_x_min, clearance_x_max)
+    upper_stair_opening = (clearance_x_min, clearance_x_max)
+    boxes = add_perimeter_walls(
+        boxes,
+        floor,
+        "office_floor1",
+        0.0,
+        DEFAULT_PERIMETER_WALL_HEIGHT,
+        north_opening=lower_stair_opening,
+    )
+    upper_boxes = add_perimeter_walls(
+        upper_boxes,
+        upper_floor,
+        "office_floor2",
+        height,
+        height + DEFAULT_PERIMETER_WALL_HEIGHT,
+        north_opening=upper_stair_opening,
+    )
 
     connector_boxes: list[BoxSpec] = []
-    for index in range(stair_count):
+    up_route: list[dict[str, float | str]] = []
+    for index in range(steps_per_flight):
         y0 = stair_y_start + index * DEFAULT_STAIR_TREAD
         y1 = y0 + DEFAULT_STAIR_TREAD
         tread_height = (index + 1) * step_height
         connector_boxes.append(
             BoxSpec(
-                name=f"office_second_floor_stair_step_{index + 1:02d}",
-                x_min=stair_x_min,
-                x_max=stair_x_max,
+                name=f"office_switchback_stair_lower_step_{index + 1:02d}",
+                x_min=lower_flight_x_min,
+                x_max=lower_flight_x_max,
                 y_min=y0,
                 y_max=y1,
                 z_min=0.0,
@@ -462,49 +563,102 @@ def add_shifted_second_floor(
                 source_class="stairs",
             )
         )
-        connector_boxes.extend(
-            [
-                BoxSpec(
-                    name=f"office_second_floor_stair_left_low_rail_{index + 1:02d}",
-                    x_min=stair_x_min - DEFAULT_STAIR_RAIL_THICKNESS,
-                    x_max=stair_x_min,
-                    y_min=y0,
-                    y_max=y1,
-                    z_min=tread_height,
-                    z_max=tread_height + DEFAULT_STAIR_RAIL_HEIGHT,
-                    terrain_kind="stair_rail",
-                    source_asset="generated_second_floor_connector",
-                    source_class="railing",
-                ),
-                BoxSpec(
-                    name=f"office_second_floor_stair_right_low_rail_{index + 1:02d}",
-                    x_min=stair_x_max,
-                    x_max=stair_x_max + DEFAULT_STAIR_RAIL_THICKNESS,
-                    y_min=y0,
-                    y_max=y1,
-                    z_min=tread_height,
-                    z_max=tread_height + DEFAULT_STAIR_RAIL_HEIGHT,
-                    terrain_kind="stair_rail",
-                    source_asset="generated_second_floor_connector",
-                    source_class="railing",
-                ),
-            ]
+        up_route.append(
+            {
+                "name": f"office_switchback_lower_step_{index + 1:02d}",
+                "x": lower_flight_x_center,
+                "y": (y0 + y1) * 0.5,
+                "z": tread_height,
+            }
         )
+    connector_boxes.append(
+        BoxSpec(
+            name="office_switchback_stair_mid_landing",
+            x_min=stair_x_min,
+            x_max=stair_x_max,
+            y_min=landing_y_min,
+            y_max=landing_y_max,
+            z_min=0.0,
+            z_max=flight_rise,
+            terrain_kind="stair_step",
+            source_asset="generated_second_floor_connector",
+            source_class="stairs",
+        )
+    )
+    up_route.append(
+        {
+            "name": "office_switchback_mid_landing",
+            "x": stair_x_center,
+            "y": (landing_y_min + landing_y_max) * 0.5,
+            "z": flight_rise,
+        }
+    )
+    for index in range(steps_per_flight):
+        y0 = landing_y_min - (index + 1) * DEFAULT_STAIR_TREAD
+        y1 = landing_y_min - index * DEFAULT_STAIR_TREAD
+        tread_height = flight_rise + (index + 1) * step_height
+        connector_boxes.append(
+            BoxSpec(
+                name=f"office_switchback_stair_upper_step_{index + 1:02d}",
+                x_min=upper_flight_x_min,
+                x_max=upper_flight_x_max,
+                y_min=y0,
+                y_max=y1,
+                z_min=0.0,
+                z_max=tread_height,
+                terrain_kind="stair_step",
+                source_asset="generated_second_floor_connector",
+                source_class="stairs",
+            )
+        )
+        up_route.append(
+            {
+                "name": f"office_switchback_upper_step_{index + 1:02d}",
+                "x": upper_flight_x_center,
+                "y": (y0 + y1) * 0.5,
+                "z": tread_height,
+            }
+        )
+    rail_specs = [
+        ("lower_left", lower_flight_x_min - DEFAULT_STAIR_RAIL_THICKNESS, lower_flight_x_min, stair_y_start, landing_y_min, 0.0, flight_rise + DEFAULT_STAIR_RAIL_HEIGHT),
+        ("upper_right", upper_flight_x_max, upper_flight_x_max + DEFAULT_STAIR_RAIL_THICKNESS, upper_y_end, landing_y_min, flight_rise, height + DEFAULT_STAIR_RAIL_HEIGHT),
+        ("landing_north", stair_x_min - DEFAULT_STAIR_RAIL_THICKNESS, stair_x_max + DEFAULT_STAIR_RAIL_THICKNESS, landing_y_max, landing_y_max + DEFAULT_STAIR_RAIL_THICKNESS, flight_rise, flight_rise + DEFAULT_STAIR_RAIL_HEIGHT),
+    ]
+    for name, x_min, x_max, y_min, y_max, z_min, z_max in rail_specs:
+        connector_boxes.append(
+            BoxSpec(
+                name=f"office_switchback_stair_rail_{name}",
+                x_min=x_min,
+                x_max=x_max,
+                y_min=y_min,
+                y_max=y_max,
+                z_min=z_min,
+                z_max=z_max,
+                terrain_kind="stair_rail",
+                source_asset="generated_second_floor_connector",
+                source_class="railing",
+            )
+        )
+    lower_entry = [lower_flight_x_center, stair_y_start, 0.0]
+    upper_entry = [upper_flight_x_center, upper_y_end, height]
+    up_route.append({"name": "office_floor2_entry", "x": upper_entry[0], "y": upper_entry[1], "z": upper_entry[2]})
     feature_metadata = {
         "floor_2": {
             "count": 1,
             "height_m": height,
             "xy_offset_m": [x_offset, y_offset],
             "connected_by": "office_second_floor_staircase",
-            "alignment": "top_stair_step_abuts_second_floor_wall_opening",
+            "alignment": "stacked_floor_with_original_north_stair_location",
         },
         "stairs": {
-            "flight_count": 1,
+            "flight_count": 2,
             "staircase_count": 1,
             "total_steps": stair_count,
+            "steps_per_flight": steps_per_flight,
             "step_height_m": step_height,
             "tread_depth_m": DEFAULT_STAIR_TREAD,
-            "width_m": DEFAULT_STAIR_WIDTH,
+            "width_m": DEFAULT_STAIR_FLIGHT_WIDTH,
+            "landing_depth_m": DEFAULT_STAIR_LANDING_DEPTH,
             "low_rail_height_m": DEFAULT_STAIR_RAIL_HEIGHT,
             "low_rail_thickness_m": DEFAULT_STAIR_RAIL_THICKNESS,
         },
@@ -520,13 +674,15 @@ def add_shifted_second_floor(
     connectors = [
         {
             "name": "office_second_floor_staircase",
-            "type": "exterior_stair_preview_connector",
-            "lower_entry": [stair_x_center, floor.y_max, 0.0],
-            "upper_entry": [stair_x_center, upper_floor.y_min, height],
-            "direction": "+Y",
+            "type": "exterior_switchback_stair_connector",
+            "lower_entry": lower_entry,
+            "upper_entry": upper_entry,
+            "direction": "switchback",
             "step_count": stair_count,
+            "steps_per_flight": steps_per_flight,
             "step_height_m": step_height,
             "tread_depth_m": DEFAULT_STAIR_TREAD,
+            "up_route": up_route,
         }
     ]
     return boxes + connector_boxes + upper_boxes, feature_metadata, connectors
@@ -730,26 +886,57 @@ def write_boundary(path: Path, boxes: list[BoxSpec], margin: float = 0.7) -> Non
     floors = [box for box in boxes if box.terrain_kind in {"floor", "floor_2"}]
     if not floors:
         floors = [boxes[0]]
-    x0 = min(floor.x_min for floor in floors) + margin
-    x1 = max(floor.x_max for floor in floors) - margin
-    y0 = min(floor.y_min for floor in floors) + margin
-    y1 = max(floor.y_max for floor in floors) - margin
+    x0 = min(box.x_min for box in floors) + margin
+    x1 = max(box.x_max for box in floors) - margin
+    y0 = min(box.y_min for box in floors) + margin
+    y1 = max(box.y_max for box in floors) - margin
+    stair_steps = [box for box in boxes if box.terrain_kind == "stair_step"]
+    if stair_steps:
+        stair_x0 = max(x0, min(box.x_min for box in stair_steps) + margin * 0.25)
+        stair_x1 = min(x1, max(box.x_max for box in stair_steps) - margin * 0.25)
+        stair_y1 = max(box.y_max for box in stair_steps) - margin
+    else:
+        stair_x0 = stair_x1 = stair_y1 = y1
+    if stair_steps and stair_y1 > y1 and stair_x1 - stair_x0 > 0.2:
+        main_y1 = min(y1, y0 + 0.50 * (y1 - y0))
+        transition_y = min(y1, y0 + 0.73 * (y1 - y0))
+        corridor_x1 = min(x1, stair_x1 + 1.25)
+        notch_x = min(x1, max(corridor_x1 + 5.0, x0 + 0.52 * (x1 - x0)))
+        vertices = [
+            (x0, y0, 0.0),
+            (x1, y0, 0.0),
+            (x1, main_y1, 0.0),
+            (notch_x, main_y1, 0.0),
+            (notch_x, transition_y, 0.0),
+            (corridor_x1, transition_y, 0.0),
+            (corridor_x1, y1, 0.0),
+            (stair_x1, y1, 0.0),
+            (stair_x1, stair_y1, 0.0),
+            (stair_x0, stair_y1, 0.0),
+            (stair_x0, y1, 0.0),
+            (x0, y1, 0.0),
+            (x0, y0, 0.0),
+        ]
+    else:
+        vertices = [
+            (x0, y0, 0.0),
+            (x1, y0, 0.0),
+            (x1, y1, 0.0),
+            (x0, y1, 0.0),
+            (x0, y0, 0.0),
+        ]
     path.write_text(
         "\n".join(
             [
                 "ply",
                 "format ascii 1.0",
-                "element vertex 5",
+                f"element vertex {len(vertices)}",
                 "property float x",
                 "property float y",
                 "property float z",
                 "end_header",
-                f"{x0:.3f} {y0:.3f} 0.0",
-                f"{x1:.3f} {y0:.3f} 0.0",
-                f"{x1:.3f} {y1:.3f} 0.0",
-                f"{x0:.3f} {y1:.3f} 0.0",
-                f"{x0:.3f} {y0:.3f} 0.0",
             ]
+            + [f"{x:.3f} {y:.3f} {z:.1f}" for x, y, z in vertices]
         )
         + "\n",
         encoding="ascii",

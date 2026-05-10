@@ -74,18 +74,23 @@ def office_connector_from_metadata(data: dict, vehicle_height: float) -> StairCo
     upper = data["upper_entry"]
     lower_goal = Goal("stair_lower_entry", float(lower[0]), float(lower[1]), float(lower[2]) + vehicle_height)
     upper_goal = Goal("stair_upper_entry", float(upper[0]), float(upper[1]), float(upper[2]) + vehicle_height)
-    step_count = max(1, int(data.get("step_count", 20)))
-    route: list[Goal] = []
-    for index in range(1, step_count + 1):
-        ratio = index / step_count
-        route.append(
-            Goal(
-                f"stair_step_{index:02d}",
-                lower_goal.x + (upper_goal.x - lower_goal.x) * ratio,
-                lower_goal.y + (upper_goal.y - lower_goal.y) * ratio,
-                lower_goal.z + (upper_goal.z - lower_goal.z) * ratio,
+    if data.get("up_route"):
+        route = [goal_from_dict(goal, f"stair_step_{index:02d}", vehicle_height) for index, goal in enumerate(data["up_route"], 1)]
+    else:
+        step_count = max(1, int(data.get("step_count", 20)))
+        route = []
+        for index in range(1, step_count + 1):
+            ratio = index / step_count
+            route.append(
+                Goal(
+                    f"stair_step_{index:02d}",
+                    lower_goal.x + (upper_goal.x - lower_goal.x) * ratio,
+                    lower_goal.y + (upper_goal.y - lower_goal.y) * ratio,
+                    lower_goal.z + (upper_goal.z - lower_goal.z) * ratio,
+                )
             )
-        )
+    if not route or math.dist((route[-1].x, route[-1].y, route[-1].z), (upper_goal.x, upper_goal.y, upper_goal.z)) > 0.05:
+        route.append(upper_goal)
     return StairConnector(str(data.get("name", "office_stair_connector")), lower_goal, upper_goal, route)
 
 
@@ -445,6 +450,14 @@ class MultilevelStairFrontierArbiter(Node):
         self.route_index = 0
         self.get_logger().info(f"Floor2 exploration finished; executing {len(self.route)} stair waypoints down.")
 
+    def _start_to_upper_stair_entry(self) -> None:
+        if self.connector is None:
+            return
+        self.state = "TO_UPPER_STAIR_ENTRY"
+        self.route = [self.connector.upper_entry]
+        self.route_index = 0
+        self.get_logger().info("Floor2 exploration finished; returning to upper stair entry before descending.")
+
     def _tick(self) -> None:
         self._publish_state()
         if self.connector is None:
@@ -455,10 +468,13 @@ class MultilevelStairFrontierArbiter(Node):
         if self.state == "PASS_THROUGH":
             if self.current_floor == 2:
                 self._publish_floor2_start_request_if_needed()
-                if self.floor2_exploration_finished and self._goal_reached(
-                    self.connector.upper_entry, self.args.entry_reach_radius, self.args.entry_z_tolerance
-                ):
-                    self._start_down_route()
+                if self.floor2_exploration_finished:
+                    if self._goal_reached(
+                        self.connector.upper_entry, self.args.entry_reach_radius, self.args.entry_z_tolerance
+                    ):
+                        self._start_down_route()
+                    else:
+                        self._start_to_upper_stair_entry()
                 else:
                     self._publish_raw_waypoint()
                     return
@@ -492,6 +508,11 @@ class MultilevelStairFrontierArbiter(Node):
             self._publish_waypoint_goal(goal)
             if self._goal_reached(goal, self.args.entry_reach_radius, self.args.entry_z_tolerance):
                 self._advance_route()
+        elif self.state == "TO_UPPER_STAIR_ENTRY":
+            self._release_path_follower()
+            self._publish_waypoint_goal(goal)
+            if self._goal_reached(goal, self.args.entry_reach_radius, self.args.entry_z_tolerance):
+                self._start_down_route()
         elif self.state in ("STAIR_EXEC_UP", "STAIR_EXEC_DOWN"):
             self._publish_stop()
             self._publish_pose_override_toward(goal)
