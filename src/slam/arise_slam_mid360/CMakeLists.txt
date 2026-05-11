@@ -48,8 +48,27 @@ find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED QUIET)
+find_package(GTSAM_UNSTABLE REQUIRED QUIET)
 find_package(TBB REQUIRED)
 find_package(livox_ros_driver2 REQUIRED)
+
+set(ARISE_EXTRA_INCLUDE_DIRS)
+if(Sophus_INCLUDE_DIRS)
+  list(APPEND ARISE_EXTRA_INCLUDE_DIRS ${Sophus_INCLUDE_DIRS})
+elseif(TARGET Sophus::Sophus)
+  get_target_property(Sophus_INCLUDE_DIRS Sophus::Sophus INTERFACE_INCLUDE_DIRECTORIES)
+  list(APPEND ARISE_EXTRA_INCLUDE_DIRS ${Sophus_INCLUDE_DIRS})
+endif()
+
+if(GTSAM_INCLUDE_DIRS)
+  list(APPEND ARISE_EXTRA_INCLUDE_DIRS ${GTSAM_INCLUDE_DIRS})
+elseif(GTSAM_INCLUDE_DIR)
+  list(APPEND ARISE_EXTRA_INCLUDE_DIRS ${GTSAM_INCLUDE_DIR})
+endif()
+
+if(GTSAM_UNSTABLE_INCLUDE_DIRS)
+  list(APPEND ARISE_EXTRA_INCLUDE_DIRS ${GTSAM_UNSTABLE_INCLUDE_DIRS})
+endif()
 
 # Include directories
 include_directories(
@@ -59,7 +78,7 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
   ${GTSAM_INCLUDE_DIR}
   ${TBB_INCLUDE_DIR}
-  ${Sophus_INCLUDE_DIRS}
+  ${ARISE_EXTRA_INCLUDE_DIRS}
   ${pcl_conversions_INCLUDE_DIRS}
   ${livox_ros_driver2_INCLUDE_DIRS}
 )
@@ -93,7 +112,8 @@ add_library(AriseSlamLib SHARED
 
 # Set up library include directory
 target_include_directories(AriseSlamLib PUBLIC  
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/AriseSlamLib>  
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    ${ARISE_EXTRA_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include/AriseSlamLib>  # <prefix>/include/mylib
 )
 
@@ -117,7 +137,8 @@ target_link_libraries(AriseSlamLib
   ${PCL_LIBRARIES}
   ${OpenCV_LIBRARIES}
   gtsam
- ${CERES_LIBRARIES}
+  gtsam_unstable
+  ${CERES_LIBRARIES}
 )
 
 # IMU PreIntegration node
@@ -125,6 +146,7 @@ add_executable(imu_preintegration_node src/imuPreintegration_node.cpp)
 ament_target_dependencies(imu_preintegration_node rclcpp nav_msgs sensor_msgs tf2_ros)
 target_link_libraries(imu_preintegration_node
     gtsam
+    gtsam_unstable
     AriseSlamLib
 )
 

@@ -1347,7 +1347,9 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
 
   lookahead_point_direction_ = lookahead_point - robot_position;
   lookahead_point_direction_.z() = 0.0;
-  lookahead_point_direction_.normalize();
+  if (lookahead_point_direction_.norm() > 1e-3) {
+    lookahead_point_direction_.normalize();
+  }
 
   pcl::PointXYZI point;
   point.x = lookahead_point.x();
@@ -1379,7 +1381,7 @@ void SensorCoveragePlanner3D::PublishWaypoint() {
     double extend_dist = lookahead_point_in_line_of_sight_
                              ? kExtendWayPointDistanceBig
                              : kExtendWayPointDistanceSmall;
-    if (r < extend_dist && kExtendWayPoint) {
+    if (r > 1e-3 && r < extend_dist && kExtendWayPoint) {
       dx = dx / r * extend_dist;
       dy = dy / r * extend_dist;
     }

@@ -43,6 +43,35 @@ _codex_source_workspace_setup() {
     rc=$?
   fi
 
+  if [ "$rc" -eq 0 ]; then
+    local gtsam_prefix sophus_prefix livox_sdk_lib ortools_lib
+    gtsam_prefix="$script_dir/local_deps/gtsam"
+    sophus_prefix="$script_dir/local_deps/sophus"
+    livox_sdk_lib="$script_dir/src/utilities/livox_ros_driver2/Livox-SDK2/build/sdk_core"
+    ortools_lib="$script_dir/src/exploration_planner/tare_planner/or-tools/lib"
+
+    if [ -d "$gtsam_prefix" ]; then
+      CMAKE_PREFIX_PATH="$gtsam_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+      LD_LIBRARY_PATH="$gtsam_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      export CMAKE_PREFIX_PATH LD_LIBRARY_PATH
+    fi
+
+    if [ -d "$sophus_prefix" ]; then
+      CMAKE_PREFIX_PATH="$sophus_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+      export CMAKE_PREFIX_PATH
+    fi
+
+    if [ -d "$livox_sdk_lib" ]; then
+      LD_LIBRARY_PATH="$livox_sdk_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      export LD_LIBRARY_PATH
+    fi
+
+    if [ -d "$ortools_lib" ]; then
+      LD_LIBRARY_PATH="$ortools_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      export LD_LIBRARY_PATH
+    fi
+  fi
+
   if [ "$restore_nounset" -eq 1 ]; then
     set -u
   fi

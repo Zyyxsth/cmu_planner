@@ -191,17 +191,13 @@ start_floor_tare() {
   local finish_topic="/${floor_ns}/tare/exploration_finish_raw"
   local start_topic="/${floor_ns}/start_exploration"
   local runtime_topic="/${floor_ns}/runtime"
-  local state_topic="/state_estimation_at_scan"
-  local scan_topic="/registered_scan"
-  local terrain_topic="/terrain_map"
-  local terrain_ext_topic="/terrain_map_ext"
+  local state_topic="/${floor_ns}/state_estimation_at_scan"
+  local scan_topic="/${floor_ns}/registered_scan"
+  local terrain_topic="/${floor_ns}/terrain_map"
+  local terrain_ext_topic="/${floor_ns}/terrain_map_ext"
 
   if [[ "$floor_ns" == "floor2" ]]; then
     start_topic="/multilevel/start_floor2_tare"
-    state_topic="/floor2/state_estimation_at_scan"
-    scan_topic="/floor2/registered_scan"
-    terrain_topic="/floor2/terrain_map"
-    terrain_ext_topic="/floor2/terrain_map_ext"
   fi
 
   ros2 run tare_planner tare_planner_node --ros-args \
