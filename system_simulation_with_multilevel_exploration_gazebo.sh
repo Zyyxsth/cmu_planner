@@ -7,6 +7,7 @@ source ./source_workspace_setup.bash
 
 NO_RVIZ=0
 SCENE_PROFILE="${WHITEBOX_SCENE_PROFILE:-office}"
+SENSOR_PROFILE="${WHITEBOX_SENSOR_PROFILE:-odin}"
 EXPLORATION_CONFIG_FILE="$SCRIPT_DIR/src/exploration_planner/tare_planner/config/indoor_multilevel_gazebo.yaml"
 POSE_OVERRIDE_TOPIC="/whitebox_vehicle_pose_override"
 BOUNDARY_FILE=""
@@ -23,6 +24,14 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       SCENE_PROFILE="$2"
+      shift 2
+      ;;
+    --sensor-profile)
+      if [[ $# -lt 2 ]]; then
+        echo "--sensor-profile requires one value: odin or mid360"
+        exit 1
+      fi
+      SENSOR_PROFILE="$2"
       shift 2
       ;;
     --config-file)
@@ -43,7 +52,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--no-rviz] [--scene-profile office|realistic|compact] [--config-file PATH] [--boundary-file PATH]"
+      echo "Usage: $0 [--no-rviz] [--scene-profile office|realistic|compact] [--sensor-profile odin|mid360] [--config-file PATH] [--boundary-file PATH]"
       exit 1
       ;;
   esac
@@ -52,6 +61,12 @@ done
 if [[ "$SCENE_PROFILE" != "office" && "$SCENE_PROFILE" != "realistic" && "$SCENE_PROFILE" != "compact" ]]; then
   echo "Invalid scene profile: $SCENE_PROFILE"
   echo "Expected: office, realistic, or compact"
+  exit 1
+fi
+
+if [[ "$SENSOR_PROFILE" != "odin" && "$SENSOR_PROFILE" != "mid360" ]]; then
+  echo "Invalid sensor profile: $SENSOR_PROFILE"
+  echo "Expected: odin or mid360"
   exit 1
 fi
 
@@ -189,15 +204,20 @@ start_floor_tare() {
   local auto_start="$2"
   local waypoint_topic="/${floor_ns}/tare/way_point_raw"
   local finish_topic="/${floor_ns}/tare/exploration_finish_raw"
+  local value_debug_topic="/${floor_ns}/tare/exploration_value_debug"
   local start_topic="/${floor_ns}/start_exploration"
   local runtime_topic="/${floor_ns}/runtime"
   local state_topic="/${floor_ns}/state_estimation_at_scan"
   local scan_topic="/${floor_ns}/registered_scan"
   local terrain_topic="/${floor_ns}/terrain_map"
   local terrain_ext_topic="/${floor_ns}/terrain_map_ext"
+  local visited_horizontal_fov_deg="360.0"
 
   if [[ "$floor_ns" == "floor2" ]]; then
     start_topic="/multilevel/start_floor2_tare"
+  fi
+  if [[ "$SENSOR_PROFILE" == "odin" ]]; then
+    visited_horizontal_fov_deg="120.0"
   fi
 
   ros2 run tare_planner tare_planner_node --ros-args \
@@ -212,7 +232,10 @@ start_floor_tare() {
     -p sub_terrain_map_ext_topic_:="$terrain_ext_topic" \
     -p pub_waypoint_topic_:="$waypoint_topic" \
     -p pub_exploration_finish_topic_:="$finish_topic" \
-    -p pub_runtime_topic_:="$runtime_topic"
+    -p pub_exploration_value_debug_topic_:="$value_debug_topic" \
+    -p pub_runtime_topic_:="$runtime_topic" \
+    -p kVisitedHorizontalFOVDeg:="$visited_horizontal_fov_deg" \
+    -p kPredictionHorizontalFOVDeg:="$visited_horizontal_fov_deg"
 }
 
 wait_for_exploration_inputs() {
@@ -235,6 +258,7 @@ ros2 launch vehicle_simulator system_simulation_with_exploration_planner_gazebo.
   scene_mesh_path:="$SCENE_MESH_PATH" \
   scene_map_path:="$SCENE_MAP_PATH" \
   boundary_file:="$BOUNDARY_FILE" \
+  sensor_profile:="$SENSOR_PROFILE" \
   launch_tare:=false \
   gazebo_gui:=$([[ "$NO_RVIZ" -eq 1 ]] && echo false || echo true) &
 LAUNCH_PID=$!

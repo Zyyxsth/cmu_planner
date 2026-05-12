@@ -41,6 +41,14 @@ bool ViewPointManagerParameter::ReadParameters(rclcpp::Node::SharedPtr nh)
   nh->get_parameter("kCoveragePointCloudResolution", kCoveragePointCloudResolution);
   nh->get_parameter("kSensorRange", kSensorRange);
   nh->get_parameter("kNeighborRange", kNeighborRange);
+  nh->get_parameter("kVisitedHorizontalFOVDeg", kVisitedHorizontalFOVDeg);
+  kVisitedHorizontalHalfFOVRad = kVisitedHorizontalFOVDeg >= 360.0
+                                     ? M_PI
+                                     : kVisitedHorizontalFOVDeg * M_PI / 360.0;
+  nh->get_parameter("kPredictionHorizontalFOVDeg", kPredictionHorizontalFOVDeg);
+  kPredictionHorizontalHalfFOVRad = kPredictionHorizontalFOVDeg >= 360.0
+                                        ? M_PI
+                                        : kPredictionHorizontalFOVDeg * M_PI / 360.0;
 
   dimension_ = 2;
   kViewPointNumber = kNumber.x() * kNumber.y() * kNumber.z();
@@ -830,11 +838,19 @@ void ViewPointManager::CheckViewPointConnectivity()
 
 void ViewPointManager::UpdateViewPointVisited(const std::vector<Eigen::Vector3d>& positions)
 {
+  std::vector<double> yaws;
+  UpdateViewPointVisited(positions, yaws);
+}
+
+void ViewPointManager::UpdateViewPointVisited(const std::vector<Eigen::Vector3d>& positions,
+                                              const std::vector<double>& yaws)
+{
   if (!initialized_)
     return;
 
-  for (const auto& position : positions)
+  for (int position_idx = 0; position_idx < positions.size(); position_idx++)
   {
+    const auto& position = positions[position_idx];
     if (!InLocalPlanningHorizon(position))
     {
       continue;
@@ -847,8 +863,18 @@ void ViewPointManager::UpdateViewPointVisited(const std::vector<Eigen::Vector3d>
       for (const auto& neighbor_viewpoint_ind : in_range_neighbor_indices_[viewpoint_ind])
       {
         MY_ASSERT(grid_->InRange(neighbor_viewpoint_ind));
+        if (vp_.kVisitedHorizontalHalfFOVRad < M_PI && position_idx < yaws.size())
+        {
+          geometry_msgs::msg::Point neighbor_position = GetViewPointPosition(neighbor_viewpoint_ind);
+          double dx = neighbor_position.x - position.x();
+          double dy = neighbor_position.y - position.y();
+          double angle_diff = misc_utils_ns::mod(atan2(dy, dx) - yaws[position_idx] + M_PI, 2 * M_PI) - M_PI;
+          if (std::abs(angle_diff) > vp_.kVisitedHorizontalHalfFOVRad)
+          {
+            continue;
+          }
+        }
         SetViewPointVisited(neighbor_viewpoint_ind, true);
-        int neighbor_array_ind = grid_->GetArrayInd(neighbor_viewpoint_ind);
       }
     }
   }
@@ -1208,6 +1234,77 @@ void ViewPointManager::UpdateViewPointCoveredFrontierPoint(std::vector<bool>& fr
   }
 }
 
+void ViewPointManager::FilterViewPointCoveredPointListsByHorizontalFOV(
+    const std::vector<Eigen::Vector3d>& uncovered_points,
+    const std::vector<Eigen::Vector3d>& uncovered_frontier_points)
+{
+  if (vp_.kPredictionHorizontalHalfFOVRad >= M_PI)
+  {
+    return;
+  }
+
+  auto filter_indices = [this](const geometry_msgs::msg::Point& viewpoint_position,
+                               const std::vector<int>& indices,
+                               const std::vector<Eigen::Vector3d>& points) {
+    if (indices.size() <= 1)
+    {
+      return indices;
+    }
+
+    std::vector<double> angles;
+    angles.reserve(indices.size());
+    for (const auto& point_ind : indices)
+    {
+      MY_ASSERT(misc_utils_ns::InRange<Eigen::Vector3d>(points, point_ind));
+      const Eigen::Vector3d& point = points[point_ind];
+      angles.push_back(atan2(point.y() - viewpoint_position.y, point.x() - viewpoint_position.x));
+    }
+
+    int best_count = 0;
+    double best_yaw = 0.0;
+    for (const auto& candidate_yaw : angles)
+    {
+      int count = 0;
+      for (const auto& angle : angles)
+      {
+        double angle_diff = misc_utils_ns::mod(angle - candidate_yaw + M_PI, 2 * M_PI) - M_PI;
+        if (std::abs(angle_diff) <= vp_.kPredictionHorizontalHalfFOVRad)
+        {
+          count++;
+        }
+      }
+      if (count > best_count)
+      {
+        best_count = count;
+        best_yaw = candidate_yaw;
+      }
+    }
+
+    std::vector<int> filtered_indices;
+    filtered_indices.reserve(best_count);
+    for (int i = 0; i < indices.size(); i++)
+    {
+      double angle_diff = misc_utils_ns::mod(angles[i] - best_yaw + M_PI, 2 * M_PI) - M_PI;
+      if (std::abs(angle_diff) <= vp_.kPredictionHorizontalHalfFOVRad)
+      {
+        filtered_indices.push_back(indices[i]);
+      }
+    }
+    return filtered_indices;
+  };
+
+  for (const auto& viewpoint_ind : candidate_indices_)
+  {
+    int array_ind = GetViewPointArrayInd(viewpoint_ind);
+    geometry_msgs::msg::Point viewpoint_position = viewpoints_[array_ind].GetPosition();
+    viewpoints_[array_ind].SetCoveredPointList(
+        filter_indices(viewpoint_position, viewpoints_[array_ind].GetCoveredPointList(), uncovered_points));
+    viewpoints_[array_ind].SetCoveredFrontierPointList(
+        filter_indices(viewpoint_position, viewpoints_[array_ind].GetCoveredFrontierPointList(),
+                       uncovered_frontier_points));
+  }
+}
+
 int ViewPointManager::GetViewPointCandidate()
 {
   viewpoint_candidate_cloud_->clear();
@@ -1254,6 +1351,56 @@ int ViewPointManager::GetViewPointCandidate()
   GetCandidateViewPointGraph(candidate_viewpoint_graph_, candidate_viewpoint_dist_, candidate_viewpoint_position_);
 
   return candidate_indices_.size();
+}
+
+ViewPointManagerDebugStats ViewPointManager::GetDebugStats() const
+{
+  ViewPointManagerDebugStats stats;
+  stats.total_viewpoints = static_cast<int>(viewpoints_.size());
+  for (const auto& viewpoint : viewpoints_)
+  {
+    const bool collision_free = !viewpoint.InCollision();
+    const bool line_of_sight = viewpoint.InLineOfSight();
+    const bool connected = viewpoint.Connected();
+    const bool candidate = viewpoint.IsCandidate();
+    if (collision_free)
+    {
+      stats.collision_free_viewpoints++;
+    }
+    if (line_of_sight)
+    {
+      stats.line_of_sight_viewpoints++;
+    }
+    if (connected)
+    {
+      stats.connected_viewpoints++;
+    }
+    if (collision_free && line_of_sight)
+    {
+      stats.free_and_line_of_sight_viewpoints++;
+    }
+    if (collision_free && connected)
+    {
+      stats.free_and_connected_viewpoints++;
+    }
+    if (line_of_sight && connected)
+    {
+      stats.line_of_sight_and_connected_viewpoints++;
+    }
+    if (candidate)
+    {
+      stats.candidate_viewpoints++;
+      if (viewpoint.Visited())
+      {
+        stats.visited_candidate_viewpoints++;
+      }
+      else
+      {
+        stats.unvisited_candidate_viewpoints++;
+      }
+    }
+  }
+  return stats;
 }
 
 nav_msgs::msg::Path ViewPointManager::GetViewPointShortestPath(int start_viewpoint_ind, int target_viewpoint_ind)

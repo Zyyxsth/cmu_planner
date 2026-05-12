@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include <Eigen/Core>
@@ -30,6 +31,7 @@
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2/transform_datatypes.h>
 // PCL
 #include <pcl/PointIndices.h>
@@ -91,6 +93,7 @@ private:
   std::string pub_runtime_topic_;
   std::string pub_waypoint_topic_;
   std::string pub_momentum_activation_count_topic_;
+  std::string pub_exploration_value_debug_topic_;
 
   // Bool
   bool kAutoStart;
@@ -141,6 +144,8 @@ private:
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>
       collision_cloud_;
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>
+      tare_effective_scan_cloud_;
+  std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>
       lookahead_point_cloud_;
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>
       keypose_graph_vis_cloud_;
@@ -162,6 +167,7 @@ private:
   double robot_yaw_;
   bool moving_forward_;
   std::vector<Eigen::Vector3d> visited_positions_;
+  std::vector<double> visited_yaws_;
   int cur_keypose_node_ind_;
   Eigen::Vector3d initial_position_;
 
@@ -210,6 +216,8 @@ private:
   double start_time_;
   double global_direction_switch_time_;
   double reset_waypoint_joystick_axis_value_;
+  std::string last_lookahead_debug_json_;
+  std::vector<int> previous_debug_selected_viewpoint_indices_;
 
   rclcpp::TimerBase::SharedPtr execution_timer_;
 
@@ -247,6 +255,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr runtime_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr
       momentum_activation_count_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr exploration_value_debug_pub_;
   // Debug
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr
       pointcloud_manager_neighbor_cells_origin_pub_;
@@ -299,6 +308,13 @@ private:
       const exploration_path_ns::ExplorationPath &local_path);
 
   void PublishRuntime();
+  void PublishExplorationValueDebug(int viewpoint_candidate_count,
+                                    int uncovered_point_num,
+                                    int uncovered_frontier_point_num,
+                                    const std::vector<int>& global_cell_tsp_order,
+                                    const exploration_path_ns::ExplorationPath& global_path,
+                                    const exploration_path_ns::ExplorationPath& local_path,
+                                    bool will_mark_finished);
   double GetRobotToHomeDistance();
   void PublishExplorationState();
   void PublishWaypoint();

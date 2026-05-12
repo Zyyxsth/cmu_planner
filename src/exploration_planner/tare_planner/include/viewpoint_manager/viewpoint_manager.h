@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <cmath>
+#include <vector>
 
 #include <Eigen/Core>
 // ROS
@@ -77,6 +78,10 @@ struct ViewPointManagerParameter
   double kSensorRange;
   double kVisitRange;
   double kNeighborRange;
+  double kVisitedHorizontalFOVDeg;
+  double kVisitedHorizontalHalfFOVRad;
+  double kPredictionHorizontalFOVDeg;
+  double kPredictionHorizontalHalfFOVRad;
   double kHeightFromTerrain;
   double kDistanceToIntConst;
 
@@ -87,6 +92,20 @@ struct ViewPointManagerParameter
   double kInFovZDiffThreshold;
 
   bool ReadParameters(rclcpp::Node::SharedPtr nh);
+};
+
+struct ViewPointManagerDebugStats
+{
+  int total_viewpoints = 0;
+  int collision_free_viewpoints = 0;
+  int line_of_sight_viewpoints = 0;
+  int connected_viewpoints = 0;
+  int free_and_line_of_sight_viewpoints = 0;
+  int free_and_connected_viewpoints = 0;
+  int line_of_sight_and_connected_viewpoints = 0;
+  int candidate_viewpoints = 0;
+  int unvisited_candidate_viewpoints = 0;
+  int visited_candidate_viewpoints = 0;
 };
 
 class ViewPointManager
@@ -149,6 +168,7 @@ public:
   bool InRobotFOV(const Eigen::Vector3d& position);
   void CheckViewPointConnectivity();
   void UpdateViewPointVisited(const std::vector<Eigen::Vector3d>& positions);
+  void UpdateViewPointVisited(const std::vector<Eigen::Vector3d>& positions, const std::vector<double>& yaws);
   void UpdateViewPointVisited(std::shared_ptr<grid_world_ns::GridWorld> const& grid_world);
   void SetViewPointHeightWithTerrain(const pcl::PointCloud<pcl::PointXYZI>::Ptr& terrain_cloud,
                                      double terrain_height_threshold = DBL_MAX);
@@ -223,6 +243,14 @@ public:
   inline double GetCoverageDilationRadius() const
   {
     return vp_.kCoverageDilationRadius;
+  }
+  inline double GetVisitedHorizontalFOVDeg() const
+  {
+    return vp_.kVisitedHorizontalFOVDeg;
+  }
+  inline double GetPredictionHorizontalFOVDeg() const
+  {
+    return vp_.kPredictionHorizontalFOVDeg;
   }
 
   template <class PointType>
@@ -306,12 +334,16 @@ public:
   void UpdateViewPointCoveredPoint(std::vector<bool>& point_list, int viewpoint_index, bool use_array_ind = false);
   void UpdateViewPointCoveredFrontierPoint(std::vector<bool>& frontier_point_list, int viewpoint_index,
                                            bool use_array_ind = false);
+  void FilterViewPointCoveredPointListsByHorizontalFOV(
+      const std::vector<Eigen::Vector3d>& uncovered_points,
+      const std::vector<Eigen::Vector3d>& uncovered_frontier_points);
 
   int GetViewPointCandidate();
   std::vector<int> GetViewPointCandidateIndices() const
   {
     return candidate_indices_;
   }
+  ViewPointManagerDebugStats GetDebugStats() const;
   nav_msgs::msg::Path GetViewPointShortestPath(int start_viewpoint_ind, int target_viewpoint_ind);
   nav_msgs::msg::Path GetViewPointShortestPath(const Eigen::Vector3d& start_position,
                                                const Eigen::Vector3d& target_position);

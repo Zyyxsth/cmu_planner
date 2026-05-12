@@ -142,6 +142,7 @@ class MultilevelStairFrontierArbiter(Node):
         self.floor2_safe_zone_scanned = False
         self.stair_discovered = False
         self.invalid_raw_waypoint_warned = False
+        self.last_value_debug_by_floor: dict[int, Optional[str]] = {1: None, 2: None}
         self.floor1_input_counts = {"state": 0, "scan": 0, "terrain": 0, "terrain_ext": 0}
         self.floor2_input_counts = {"state": 0, "scan": 0, "terrain": 0, "terrain_ext": 0}
         self.last_debug_summary_time = self.get_clock().now()
@@ -175,6 +176,7 @@ class MultilevelStairFrontierArbiter(Node):
         self.frontier_cloud_pub = self.create_publisher(PointCloud2, args.stair_frontier_topic, 2)
         self.connector_path_pub = self.create_publisher(RosPath, args.connector_path_topic, 2)
         self.state_pub = self.create_publisher(String, args.state_topic, 2)
+        self.value_debug_pub = self.create_publisher(String, args.value_debug_topic, 5)
         self.floor2_start_pub = self.create_publisher(Bool, args.floor2_start_request_topic, 5)
         self.floor1_state_scan_pub = self.create_publisher(Odometry, args.floor1_state_estimation_at_scan_topic, 10)
         self.floor1_scan_pub = self.create_publisher(PointCloud2, args.floor1_registered_scan_topic, 5)
@@ -197,6 +199,8 @@ class MultilevelStairFrontierArbiter(Node):
         self.create_subscription(PointCloud2, args.terrain_map_ext_topic, self._terrain_map_ext_callback, 5)
         self.create_subscription(Bool, floor1_finish_topic, self._floor1_exploration_finish_callback, 5)
         self.create_subscription(Bool, args.floor2_exploration_finish_topic, self._floor2_exploration_finish_callback, 5)
+        self.create_subscription(String, args.floor1_value_debug_topic, lambda msg: self._value_debug_callback(1, msg), 5)
+        self.create_subscription(String, args.floor2_value_debug_topic, lambda msg: self._value_debug_callback(2, msg), 5)
         self.create_timer(1.0 / args.publish_rate, self._tick)
         self.create_timer(1.0, self._publish_visualization)
 
@@ -306,6 +310,11 @@ class MultilevelStairFrontierArbiter(Node):
     def _relay_path(self, floor: int, topic: str, msg: RosPath) -> None:
         if floor == self.current_floor:
             self.path_relay_pubs[topic].publish(msg)
+
+    def _value_debug_callback(self, floor: int, msg: String) -> None:
+        self.last_value_debug_by_floor[floor] = msg.data
+        if floor == self.current_floor:
+            self.value_debug_pub.publish(msg)
 
     def _odom_callback(self, msg: Odometry) -> None:
         self.last_odom = msg
@@ -776,8 +785,16 @@ class MultilevelStairFrontierArbiter(Node):
             floor2_input_counts=dict(self.floor2_input_counts),
             floor1_waypoint=self._point_to_dict(self.floor1_raw_waypoint),
             floor2_waypoint=self._point_to_dict(self.floor2_raw_waypoint),
+            active_value_debug=self.last_value_debug_by_floor.get(self.current_floor),
+            floor1_value_debug=self.last_value_debug_by_floor.get(1),
+            floor2_value_debug=self.last_value_debug_by_floor.get(2),
             stair_candidate_active=self._stair_candidate_active(),
             stair_discovered=self.stair_discovered,
+            distance_to_lower_stair=(
+                round(self._distance_xy_to_goal(self.connector.lower_entry), 3)
+                if self.connector is not None
+                else None
+            ),
             floor2_safe_zone_scanned=self.floor2_safe_zone_scanned,
             floor2_safe_zone_scan_count=self.floor2_safe_zone_scan_count,
         )
@@ -855,6 +872,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exploration-finish-topic", default=None)
     parser.add_argument("--floor1-exploration-finish-topic", default="/floor1/tare/exploration_finish_raw")
     parser.add_argument("--floor2-exploration-finish-topic", default="/floor2/tare/exploration_finish_raw")
+    parser.add_argument("--floor1-value-debug-topic", default="/floor1/tare/exploration_value_debug")
+    parser.add_argument("--floor2-value-debug-topic", default="/floor2/tare/exploration_value_debug")
+    parser.add_argument("--value-debug-topic", default="/exploration_value_debug")
     parser.add_argument("--odom-topic", default="/state_estimation")
     parser.add_argument("--state-estimation-at-scan-topic", default="/state_estimation_at_scan")
     parser.add_argument("--registered-scan-topic", default="/registered_scan")
@@ -884,6 +904,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "keypose_graph_cloud",
             "exploration_path_cloud",
             "keypose_cloud",
+            "tare_effective_scan_cloud",
         ],
     )
     parser.add_argument(

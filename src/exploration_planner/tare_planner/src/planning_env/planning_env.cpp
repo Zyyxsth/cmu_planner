@@ -49,6 +49,8 @@ PlanningEnv::PlanningEnv(rclcpp::Node::SharedPtr nh, std::string world_frame_id)
   , vertical_surface_extractor_()
   , vertical_frontier_extractor_()
   , robot_position_update_(false)
+  , robot_yaw_(0.0)
+  , robot_coverage_horizontal_fov_deg_(360.0)
 {
   parameters_.ReadParameters(nh);
 
@@ -170,6 +172,9 @@ void PlanningEnv::UpdateFrontiers()
   {
     prev_robot_position_ = robot_position_;
     rolling_occupancy_grid_->GetFrontier(frontier_cloud_->cloud_, robot_position_, parameters_.kExtractFrontierRange);
+    debug_stats_.raw_frontier_points = frontier_cloud_->cloud_->points.size();
+    debug_stats_.vertical_filtered_frontier_points = 0;
+    debug_stats_.clustered_frontier_points = 0;
 
     if (!frontier_cloud_->cloud_->points.empty())
     {
@@ -180,6 +185,11 @@ void PlanningEnv::UpdateFrontiers()
       vertical_frontier_extractor_.ExtractVerticalSurface<pcl::PointXYZI, pcl::PointXYZI>(
           frontier_cloud_->cloud_, filtered_frontier_cloud_->cloud_);
     }
+    else
+    {
+      filtered_frontier_cloud_->cloud_->clear();
+    }
+    debug_stats_.vertical_filtered_frontier_points = filtered_frontier_cloud_->cloud_->points.size();
 
     // Cluster frontiers
     if (!filtered_frontier_cloud_->cloud_->points.empty())
@@ -215,7 +225,12 @@ void PlanningEnv::UpdateFrontiers()
       extract.setIndices(inliers);
       extract.setNegative(false);
       extract.filter(*(filtered_frontier_cloud_->cloud_));
+      debug_stats_.clustered_frontier_points = filtered_frontier_cloud_->cloud_->points.size();
       filtered_frontier_cloud_->Publish();
+    }
+    else
+    {
+      debug_stats_.clustered_frontier_points = 0;
     }
   }
 }
@@ -286,6 +301,10 @@ void PlanningEnv::UpdateCoveredArea(const lidar_model_ns::LiDARModel& robot_view
     }
     if (std::abs(point.z - robot_position.z) < diff_z_max)
     {
+      if (!PointInRobotHorizontalFOV(robot_position, robot_yaw_, robot_coverage_horizontal_fov_deg_, point.x, point.y))
+      {
+        continue;
+      }
       if (misc_utils_ns::InFOVSimple(Eigen::Vector3d(point.x, point.y, point.z),
                                      Eigen::Vector3d(robot_position.x, robot_position.y, robot_position.z),
                                      vertical_fov_ratio, sensor_range, xy_dist_threshold, z_diff_threshold))
@@ -366,11 +385,27 @@ void PlanningEnv::GetUncoveredArea(const std::shared_ptr<viewpoint_manager_ns::V
   uncovered_frontier_cloud_->cloud_->clear();
   uncovered_point_num = 0;
   uncovered_frontier_point_num = 0;
+  debug_stats_.planner_points = planner_cloud_->cloud_->points.size();
+  debug_stats_.covered_planner_points = 0;
+  debug_stats_.frontier_visible_to_candidates = 0;
+  debug_stats_.frontier_visible_to_visited = 0;
+  debug_stats_.frontier_visible_to_no_viewpoint = 0;
+  debug_stats_.frontier_with_candidate_in_fov_range = 0;
+  debug_stats_.frontier_with_unvisited_candidate_in_fov_range = 0;
+  debug_stats_.frontier_with_visited_candidate_in_fov_range = 0;
+  debug_stats_.frontier_no_viewpoint_with_unvisited_candidate_in_fov_range = 0;
+  debug_stats_.frontier_nearest_candidate_dist_sum = 0.0;
+  debug_stats_.frontier_nearest_unvisited_candidate_dist_sum = 0.0;
+  debug_stats_.frontier_nearest_candidate_dist_max = 0.0;
+  debug_stats_.frontier_nearest_unvisited_candidate_dist_max = 0.0;
+  std::vector<Eigen::Vector3d> uncovered_points;
+  std::vector<Eigen::Vector3d> uncovered_frontier_points;
   for (int i = 0; i < planner_cloud_->cloud_->points.size(); i++)
   {
     PlannerCloudPointType point = planner_cloud_->cloud_->points[i];
     if (point.g > 0)
     {
+      debug_stats_.covered_planner_points++;
       continue;
     }
     bool observed = false;
@@ -393,6 +428,7 @@ void PlanningEnv::GetUncoveredArea(const std::shared_ptr<viewpoint_manager_ns::V
       uncovered_point.z = point.z;
       uncovered_point.intensity = i;
       uncovered_cloud_->cloud_->points.push_back(uncovered_point);
+      uncovered_points.emplace_back(point.x, point.y, point.z);
       uncovered_point_num++;
     }
   }
@@ -404,29 +440,124 @@ void PlanningEnv::GetUncoveredArea(const std::shared_ptr<viewpoint_manager_ns::V
     {
       pcl::PointXYZI point = filtered_frontier_cloud_->cloud_->points[i];
       bool observed = false;
+      bool visible_to_visited = false;
+      bool in_candidate_fov_range = false;
+      bool in_unvisited_candidate_fov_range = false;
+      bool in_visited_candidate_fov_range = false;
+      double nearest_candidate_dist = DBL_MAX;
+      double nearest_unvisited_candidate_dist = DBL_MAX;
       for (const auto& viewpoint_ind : viewpoint_manager->candidate_indices_)
       {
+        geometry_msgs::msg::Point viewpoint_position = viewpoint_manager->GetViewPointPosition(viewpoint_ind);
+        double viewpoint_dist =
+            misc_utils_ns::PointXYZDist<pcl::PointXYZI, geometry_msgs::msg::Point>(point, viewpoint_position);
+        nearest_candidate_dist = std::min(nearest_candidate_dist, viewpoint_dist);
         if (!viewpoint_manager->ViewPointVisited(viewpoint_ind))
         {
-          if (viewpoint_manager->VisibleByViewPoint<pcl::PointXYZI>(point, viewpoint_ind))
+          nearest_unvisited_candidate_dist = std::min(nearest_unvisited_candidate_dist, viewpoint_dist);
+        }
+        bool viewpoint_in_fov_range = viewpoint_manager->InFOVAndRange(
+            Eigen::Vector3d(point.x, point.y, point.z),
+            Eigen::Vector3d(viewpoint_position.x, viewpoint_position.y, viewpoint_position.z));
+        if (viewpoint_in_fov_range)
+        {
+          in_candidate_fov_range = true;
+          if (viewpoint_manager->ViewPointVisited(viewpoint_ind))
+          {
+            in_visited_candidate_fov_range = true;
+          }
+          else
+          {
+            in_unvisited_candidate_fov_range = true;
+          }
+        }
+        if (viewpoint_manager->VisibleByViewPoint<pcl::PointXYZI>(point, viewpoint_ind))
+        {
+          if (!viewpoint_manager->ViewPointVisited(viewpoint_ind))
           {
             viewpoint_manager->AddUncoveredFrontierPoint(viewpoint_ind, uncovered_frontier_point_num);
             observed = true;
           }
+          else
+          {
+            visible_to_visited = true;
+          }
         }
+      }
+      if (nearest_candidate_dist < DBL_MAX)
+      {
+        debug_stats_.frontier_nearest_candidate_dist_sum += nearest_candidate_dist;
+        debug_stats_.frontier_nearest_candidate_dist_max =
+            std::max(debug_stats_.frontier_nearest_candidate_dist_max, nearest_candidate_dist);
+      }
+      if (nearest_unvisited_candidate_dist < DBL_MAX)
+      {
+        debug_stats_.frontier_nearest_unvisited_candidate_dist_sum += nearest_unvisited_candidate_dist;
+        debug_stats_.frontier_nearest_unvisited_candidate_dist_max =
+            std::max(debug_stats_.frontier_nearest_unvisited_candidate_dist_max,
+                     nearest_unvisited_candidate_dist);
+      }
+      if (in_candidate_fov_range)
+      {
+        debug_stats_.frontier_with_candidate_in_fov_range++;
+      }
+      if (in_unvisited_candidate_fov_range)
+      {
+        debug_stats_.frontier_with_unvisited_candidate_in_fov_range++;
+      }
+      if (in_visited_candidate_fov_range)
+      {
+        debug_stats_.frontier_with_visited_candidate_in_fov_range++;
       }
       if (observed)
       {
+        debug_stats_.frontier_visible_to_candidates++;
         pcl::PointXYZI uncovered_frontier_point;
         uncovered_frontier_point.x = point.x;
         uncovered_frontier_point.y = point.y;
         uncovered_frontier_point.z = point.z;
         uncovered_frontier_point.intensity = i;
         uncovered_frontier_cloud_->cloud_->points.push_back(uncovered_frontier_point);
+        uncovered_frontier_points.emplace_back(point.x, point.y, point.z);
         uncovered_frontier_point_num++;
+      }
+      else if (visible_to_visited)
+      {
+        debug_stats_.frontier_visible_to_visited++;
+      }
+      else
+      {
+        debug_stats_.frontier_visible_to_no_viewpoint++;
+        if (in_unvisited_candidate_fov_range)
+        {
+          debug_stats_.frontier_no_viewpoint_with_unvisited_candidate_in_fov_range++;
+        }
       }
     }
   }
+
+  viewpoint_manager->FilterViewPointCoveredPointListsByHorizontalFOV(uncovered_points, uncovered_frontier_points);
+}
+
+bool PlanningEnv::PointInRobotHorizontalFOV(const geometry_msgs::msg::Point& robot_position,
+                                           double robot_yaw,
+                                           double horizontal_fov_deg,
+                                           double point_x,
+                                           double point_y) const
+{
+  if (horizontal_fov_deg >= 360.0)
+  {
+    return true;
+  }
+  double dx = point_x - robot_position.x;
+  double dy = point_y - robot_position.y;
+  if (std::abs(dx) < 1e-6 && std::abs(dy) < 1e-6)
+  {
+    return true;
+  }
+  double half_fov_rad = horizontal_fov_deg * M_PI / 360.0;
+  double angle_diff = misc_utils_ns::mod(atan2(dy, dx) - robot_yaw + M_PI, 2 * M_PI) - M_PI;
+  return std::abs(angle_diff) <= half_fov_rad;
 }
 
 void PlanningEnv::GetVisualizationPointCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr vis_cloud)

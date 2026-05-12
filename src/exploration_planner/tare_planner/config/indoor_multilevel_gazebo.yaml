@@ -95,6 +95,8 @@
 
     kSensorRange : 3.5
     kNeighborRange : 3.0
+    kVisitedHorizontalFOVDeg : 360.0
+    kPredictionHorizontalFOVDeg : 360.0
     kCoverageOcclusionThr : 0.3
     kCoverageDilationRadius : 0.5
 

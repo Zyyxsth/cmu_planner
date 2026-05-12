@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include <vector>
+
 #include <geometry_msgs/msg/point.hpp>
 #include <lidar_model/lidar_model.h>
 
@@ -209,6 +211,14 @@ public:
   int GetCoveredFrontierPointNum() const
   {
     return covered_frontier_point_list_.size();
+  }
+  void SetCoveredPointList(const std::vector<int>& covered_point_list)
+  {
+    covered_point_list_ = covered_point_list;
+  }
+  void SetCoveredFrontierPointList(const std::vector<int>& covered_frontier_point_list)
+  {
+    covered_frontier_point_list_ = covered_frontier_point_list;
   }
   int GetCollisionFrameCount() const
   {

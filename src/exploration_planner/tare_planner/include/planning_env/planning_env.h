@@ -43,6 +43,7 @@ namespace planning_env_ns
 typedef pcl::PointXYZRGBNormal PlannerCloudPointType;
 typedef pcl::PointCloud<PlannerCloudPointType> PlannerCloudType;
 struct PlanningEnvParameters;
+struct PlanningEnvDebugStats;
 class PlanningEnv;
 }  // namespace planning_env_ns
 
@@ -76,6 +77,26 @@ struct planning_env_ns::PlanningEnvParameters
   bool kUseCoverageBoundaryOnObjectSurface;
 
   void ReadParameters(rclcpp::Node::SharedPtr nh);
+};
+
+struct planning_env_ns::PlanningEnvDebugStats
+{
+  int planner_points = 0;
+  int covered_planner_points = 0;
+  int raw_frontier_points = 0;
+  int vertical_filtered_frontier_points = 0;
+  int clustered_frontier_points = 0;
+  int frontier_visible_to_candidates = 0;
+  int frontier_visible_to_visited = 0;
+  int frontier_visible_to_no_viewpoint = 0;
+  int frontier_with_candidate_in_fov_range = 0;
+  int frontier_with_unvisited_candidate_in_fov_range = 0;
+  int frontier_with_visited_candidate_in_fov_range = 0;
+  int frontier_no_viewpoint_with_unvisited_candidate_in_fov_range = 0;
+  double frontier_nearest_candidate_dist_sum = 0.0;
+  double frontier_nearest_unvisited_candidate_dist_sum = 0.0;
+  double frontier_nearest_candidate_dist_max = 0.0;
+  double frontier_nearest_unvisited_candidate_dist_max = 0.0;
 };
 
 class planning_env_ns::PlanningEnv
@@ -292,11 +313,32 @@ public:
   {
     return planner_cloud_->cloud_;
   }
+  PlanningEnvDebugStats GetDebugStats() const
+  {
+    return debug_stats_;
+  }
   void UpdateCoveredArea(const lidar_model_ns::LiDARModel& robot_viewpoint,
                          const std::shared_ptr<viewpoint_manager_ns::ViewPointManager>& viewpoint_manager);
 
   void GetUncoveredArea(const std::shared_ptr<viewpoint_manager_ns::ViewPointManager>& viewpoint_manager,
                         int& uncovered_point_num, int& uncovered_frontier_point_num);
+  bool PointInRobotHorizontalFOV(const geometry_msgs::msg::Point& robot_position,
+                                 double robot_yaw,
+                                 double horizontal_fov_deg,
+                                 double point_x,
+                                 double point_y) const;
+  void SetRobotCoverageHorizontalFOV(double horizontal_fov_deg)
+  {
+    robot_coverage_horizontal_fov_deg_ = horizontal_fov_deg;
+  }
+  double GetRobotCoverageHorizontalFOVDeg() const
+  {
+    return robot_coverage_horizontal_fov_deg_;
+  }
+  void SetRobotYaw(double robot_yaw)
+  {
+    robot_yaw_ = robot_yaw;
+  }
 
   Eigen::Vector3d GetPointCloudManagerNeighborCellsOrigin()
   {
@@ -355,6 +397,9 @@ private:
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>> occupied_cloud_;
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>> free_cloud_;
   std::shared_ptr<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>> unknown_cloud_;
+  PlanningEnvDebugStats debug_stats_;
+  double robot_yaw_;
+  double robot_coverage_horizontal_fov_deg_;
 
   // std::shared_ptr<occupancy_grid_ns::OccupancyGrid> occupancy_grid_;
 

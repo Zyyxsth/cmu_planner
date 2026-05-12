@@ -76,6 +76,16 @@ public:
     return local_coverage_complete_;
   }
 
+  const std::vector<int>& GetLastSelectedViewPointIndices() const
+  {
+    return last_selected_viewpoint_indices_;
+  }
+
+  const std::vector<int>& GetLastSelectedViewPointArrayIndices() const
+  {
+    return last_selected_viewpoint_array_indices_;
+  }
+
   // Visualization
   void GetSelectedViewPointVisCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud);
 

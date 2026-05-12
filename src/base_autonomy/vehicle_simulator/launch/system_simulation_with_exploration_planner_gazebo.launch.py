@@ -39,6 +39,7 @@ def generate_launch_description():
     check_terrain_conn = LaunchConfiguration("checkTerrainConn")
     vehicle_terrain_map_topic = LaunchConfiguration("vehicleTerrainMapTopic")
     pose_override_topic = LaunchConfiguration("poseOverrideTopic")
+    sensor_profile = LaunchConfiguration("sensor_profile")
 
     start_local_planner = IncludeLaunchDescription(
         FrontendLaunchDescriptionSource(
@@ -166,6 +167,7 @@ def generate_launch_description():
         DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),
         DeclareLaunchArgument("vehicleTerrainMapTopic", default_value="/terrain_map", description=""),
         DeclareLaunchArgument("poseOverrideTopic", default_value="", description=""),
+        DeclareLaunchArgument("sensor_profile", default_value="odin", description="odin or mid360"),
         DeclareLaunchArgument("gazebo_gui", default_value="true", description=""),
         DeclareLaunchArgument("launch_joy", default_value="true", description=""),
         DeclareLaunchArgument("launch_tare", default_value="true", description=""),

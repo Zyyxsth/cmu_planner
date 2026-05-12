@@ -11,7 +11,9 @@
 
 #include "sensor_coverage_planner/sensor_coverage_planner_ground.h"
 #include "graph/graph.h"
+#include <algorithm>
 #include <memory>
+#include <sstream>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 
@@ -51,6 +53,8 @@ void SensorCoveragePlanner3D::ReadParameters() {
   this->declare_parameter<std::string>("pub_waypoint_topic_", "/way_point");
   this->declare_parameter<std::string>("pub_momentum_activation_count_topic_",
                                        "momentum_activation_count");
+  this->declare_parameter<std::string>("pub_exploration_value_debug_topic_",
+                                       "exploration_value_debug");
 
   // Bool
   this->declare_parameter<bool>("kAutoStart", false);
@@ -161,6 +165,8 @@ void SensorCoveragePlanner3D::ReadParameters() {
   this->declare_parameter<double>("kCoveragePointCloudResolution", 1.0);
   this->declare_parameter<double>("kSensorRange", 10.0);
   this->declare_parameter<double>("kNeighborRange", 3.0);
+  this->declare_parameter<double>("kVisitedHorizontalFOVDeg", 360.0);
+  this->declare_parameter<double>("kPredictionHorizontalFOVDeg", 360.0);
 
   // tare_visualizer
   this->declare_parameter<bool>("kExploringSubspaceMarkerColorGradientAlpha",
@@ -204,6 +210,8 @@ void SensorCoveragePlanner3D::ReadParameters() {
   this->get_parameter("pub_waypoint_topic_", pub_waypoint_topic_);
   this->get_parameter("pub_momentum_activation_count_topic_",
                       pub_momentum_activation_count_topic_);
+  this->get_parameter("pub_exploration_value_debug_topic_",
+                      pub_exploration_value_debug_topic_);
 
   this->get_parameter("kAutoStart", kAutoStart);
 
@@ -278,6 +286,9 @@ void SensorCoveragePlanner3D::InitializeData() {
   collision_cloud_ =
       std::make_shared<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>(
           shared_from_this(), "collision_cloud", kWorldFrameID);
+  tare_effective_scan_cloud_ =
+      std::make_shared<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>(
+          shared_from_this(), "tare_effective_scan_cloud", kWorldFrameID);
   lookahead_point_cloud_ =
       std::make_shared<pointcloud_utils_ns::PCLCloud<pcl::PointXYZI>>(
           shared_from_this(), "lookahead_point_cloud", kWorldFrameID);
@@ -300,6 +311,9 @@ void SensorCoveragePlanner3D::InitializeData() {
       std::make_shared<keypose_graph_ns::KeyposeGraph>(shared_from_this());
   planning_env_ =
       std::make_shared<planning_env_ns::PlanningEnv>(shared_from_this());
+  double visited_horizontal_fov_deg = 360.0;
+  this->get_parameter("kVisitedHorizontalFOVDeg", visited_horizontal_fov_deg);
+  planning_env_->SetRobotCoverageHorizontalFOV(visited_horizontal_fov_deg);
   grid_world_ = std::make_shared<grid_world_ns::GridWorld>(shared_from_this());
   grid_world_->SetUseKeyposeGraph(true);
   local_coverage_planner_ =
@@ -366,7 +380,8 @@ SensorCoveragePlanner3D::SensorCoveragePlanner3D()
       use_momentum_(false), lookahead_point_in_line_of_sight_(true),
       reset_waypoint_(false), registered_cloud_count_(0), keypose_count_(0),
       direction_change_count_(0), direction_no_change_count_(0),
-      momentum_activation_count_(0), reset_waypoint_joystick_axis_value_(-1.0) {
+      momentum_activation_count_(0), reset_waypoint_joystick_axis_value_(-1.0),
+      last_lookahead_debug_json_("{}"), previous_debug_selected_viewpoint_indices_() {
   std::cout << "finished constructor" << std::endl;
 }
 
@@ -459,6 +474,9 @@ bool SensorCoveragePlanner3D::initialize() {
       this->create_publisher<std_msgs::msg::Float32>(pub_runtime_topic_, 2);
   momentum_activation_count_pub_ = this->create_publisher<std_msgs::msg::Int32>(
       pub_momentum_activation_count_topic_, 2);
+  exploration_value_debug_pub_ =
+      this->create_publisher<std_msgs::msg::String>(
+          pub_exploration_value_debug_topic_, 5);
   // Debug
   pointcloud_manager_neighbor_cells_origin_pub_ =
       this->create_publisher<geometry_msgs::msg::PointStamped>(
@@ -494,6 +512,9 @@ void SensorCoveragePlanner3D::StateEstimationCallback(
       .getRPY(roll, pitch, yaw);
 
   robot_yaw_ = yaw;
+  if (planning_env_) {
+    planning_env_->SetRobotYaw(robot_yaw_);
+  }
 
   if (state_estimation_msg->twist.twist.linear.x > 0.4) {
     moving_forward_ = true;
@@ -729,7 +750,7 @@ int SensorCoveragePlanner3D::UpdateViewPoints() {
   int viewpoint_candidate_count = viewpoint_manager_->GetViewPointCandidate();
 
   UpdateVisitedPositions();
-  viewpoint_manager_->UpdateViewPointVisited(visited_positions_);
+  viewpoint_manager_->UpdateViewPointVisited(visited_positions_, visited_yaws_);
   viewpoint_manager_->UpdateViewPointVisited(grid_world_);
 
   // For visualization
@@ -763,14 +784,22 @@ void SensorCoveragePlanner3D::UpdateViewPointCoverage() {
 void SensorCoveragePlanner3D::UpdateRobotViewPointCoverage() {
   pcl::PointCloud<pcl::PointXYZI>::Ptr cloud =
       planning_env_->GetCollisionCloud();
+  tare_effective_scan_cloud_->cloud_->clear();
   for (const auto &point : cloud->points) {
+    if (!planning_env_->PointInRobotHorizontalFOV(robot_position_, robot_yaw_,
+                                                  planning_env_->GetRobotCoverageHorizontalFOVDeg(),
+                                                  point.x, point.y)) {
+      continue;
+    }
     if (viewpoint_manager_->InFOVAndRange(
             Eigen::Vector3d(point.x, point.y, point.z),
             Eigen::Vector3d(robot_position_.x, robot_position_.y,
                             robot_position_.z))) {
       robot_viewpoint_.UpdateCoverage<pcl::PointXYZI>(point);
+      tare_effective_scan_cloud_->cloud_->points.push_back(point);
     }
   }
+  tare_effective_scan_cloud_->Publish();
 }
 
 void SensorCoveragePlanner3D::UpdateCoveredAreas(
@@ -804,6 +833,7 @@ void SensorCoveragePlanner3D::UpdateVisitedPositions() {
   }
   if (!existing) {
     visited_positions_.push_back(robot_current_position);
+    visited_yaws_.push_back(robot_yaw_);
   }
 }
 
@@ -1047,6 +1077,25 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
     Eigen::Vector3d &lookahead_point) {
   Eigen::Vector3d robot_position(robot_position_.x, robot_position_.y,
                                  robot_position_.z);
+  auto append_point_json = [](std::ostringstream& ss, const Eigen::Vector3d& point) {
+    ss << "{\"x\":" << point.x() << ",\"y\":" << point.y()
+       << ",\"z\":" << point.z() << "}";
+  };
+  auto append_node_sample_json =
+      [](std::ostringstream& ss, const exploration_path_ns::ExplorationPath& path, int max_nodes) {
+        ss << "[";
+        int sample_count = std::min(static_cast<int>(path.nodes_.size()), max_nodes);
+        for (int i = 0; i < sample_count; i++) {
+          if (i > 0) {
+            ss << ",";
+          }
+          ss << "{\"type\":" << static_cast<int>(path.nodes_[i].type_)
+             << ",\"x\":" << path.nodes_[i].position_.x()
+             << ",\"y\":" << path.nodes_[i].position_.y()
+             << ",\"z\":" << path.nodes_[i].position_.z() << "}";
+        }
+        ss << "]";
+      };
 
   // Determine which direction to follow on the global path
   double dist_from_start = 0.0;
@@ -1081,6 +1130,8 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
     }
   }
   if (local_path.GetNodeNum() < 1 || local_path_too_short) {
+    std::string reason =
+        local_path.GetNodeNum() < 1 ? "empty_local_path" : "local_path_too_short";
     if (dist_from_start < dist_from_end) {
       double dist_from_robot = 0.0;
       for (int i = 1; i < global_path.nodes_.size(); i++) {
@@ -1092,6 +1143,7 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
           break;
         }
       }
+      reason += "_global_start";
     } else {
       double dist_from_robot = 0.0;
       for (int i = global_path.nodes_.size() - 2; i > 0; i--) {
@@ -1103,7 +1155,21 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
           break;
         }
       }
+      reason += "_global_end";
     }
+    std::ostringstream debug_ss;
+    debug_ss << "{\"reason\":\"" << reason << "\"";
+    debug_ss << ",\"local_path_too_short\":" << (local_path_too_short ? "true" : "false");
+    debug_ss << ",\"local_nodes\":" << local_path.GetNodeNum();
+    debug_ss << ",\"global_nodes\":" << global_path.GetNodeNum();
+    debug_ss << ",\"dist_from_start\":" << dist_from_start;
+    debug_ss << ",\"dist_from_end\":" << dist_from_end;
+    debug_ss << ",\"chosen\":";
+    append_point_json(debug_ss, lookahead_point);
+    debug_ss << ",\"global_sample\":";
+    append_node_sample_json(debug_ss, global_path, 6);
+    debug_ss << "}";
+    last_lookahead_debug_json_ = debug_ss.str();
     return false;
   }
 
@@ -1336,6 +1402,15 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
     }
   }
 
+  std::string chosen_reason = "unknown";
+  if (lookahead_point == forward_lookahead_point) {
+    chosen_reason = "forward";
+  } else if (lookahead_point == backward_lookahead_point) {
+    chosen_reason = "backward";
+  } else if (has_lookahead && lookahead_point == local_path.nodes_[lookahead_i].position_) {
+    chosen_reason = "reuse_previous_lookahead";
+  }
+
   if ((lookahead_point == forward_lookahead_point &&
        !forward_lookahead_point_in_los) ||
       (lookahead_point == backward_lookahead_point &&
@@ -1350,6 +1425,40 @@ bool SensorCoveragePlanner3D::GetLookAheadPoint(
   if (lookahead_point_direction_.norm() > 1e-3) {
     lookahead_point_direction_.normalize();
   }
+
+  std::ostringstream debug_ss;
+  debug_ss << "{\"reason\":\"" << chosen_reason << "\"";
+  debug_ss << ",\"local_path_too_short\":false";
+  debug_ss << ",\"local_loop\":" << (local_loop ? "true" : "false");
+  debug_ss << ",\"relocation\":" << (relocation_ ? "true" : "false");
+  debug_ss << ",\"has_lookahead\":" << (has_lookahead ? "true" : "false");
+  debug_ss << ",\"has_forward\":" << (has_forward ? "true" : "false");
+  debug_ss << ",\"has_backward\":" << (has_backward ? "true" : "false");
+  debug_ss << ",\"forward_viewpoint_count\":" << forward_viewpoint_count;
+  debug_ss << ",\"backward_viewpoint_count\":" << backward_viewpoint_count;
+  debug_ss << ",\"forward_angle_score\":" << forward_angle_score;
+  debug_ss << ",\"backward_angle_score\":" << backward_angle_score;
+  debug_ss << ",\"previous_lookahead_angle_score\":" << lookahead_angle_score;
+  debug_ss << ",\"dist_robot_to_previous_lookahead\":" << dist_robot_to_lookahead;
+  debug_ss << ",\"dist_from_start\":" << dist_from_start;
+  debug_ss << ",\"dist_from_end\":" << dist_from_end;
+  debug_ss << ",\"forward_los\":" << (forward_lookahead_point_in_los ? "true" : "false");
+  debug_ss << ",\"backward_los\":" << (backward_lookahead_point_in_los ? "true" : "false");
+  debug_ss << ",\"chosen_los\":" << (lookahead_point_in_line_of_sight_ ? "true" : "false");
+  debug_ss << ",\"use_momentum\":" << (use_momentum_ ? "true" : "false");
+  debug_ss << ",\"k_use_momentum\":" << (kUseMomentum ? "true" : "false");
+  debug_ss << ",\"robot_i\":" << robot_i;
+  debug_ss << ",\"lookahead_i\":" << lookahead_i;
+  debug_ss << ",\"chosen\":";
+  append_point_json(debug_ss, lookahead_point);
+  debug_ss << ",\"forward\":";
+  append_point_json(debug_ss, forward_lookahead_point);
+  debug_ss << ",\"backward\":";
+  append_point_json(debug_ss, backward_lookahead_point);
+  debug_ss << ",\"path_sample\":";
+  append_node_sample_json(debug_ss, local_path, 8);
+  debug_ss << "}";
+  last_lookahead_debug_json_ = debug_ss.str();
 
   pcl::PointXYZI point;
   point.x = lookahead_point.x();
@@ -1420,6 +1529,279 @@ void SensorCoveragePlanner3D::PublishRuntime() {
   std_msgs::msg::Float32 runtime_msg;
   runtime_msg.data = runtime / 1000.0;
   runtime_pub_->publish(runtime_msg);
+}
+
+void SensorCoveragePlanner3D::PublishExplorationValueDebug(
+    int viewpoint_candidate_count, int uncovered_point_num,
+    int uncovered_frontier_point_num,
+    const std::vector<int>& global_cell_tsp_order,
+    const exploration_path_ns::ExplorationPath& global_path,
+    const exploration_path_ns::ExplorationPath& local_path,
+    bool will_mark_finished) {
+  if (!exploration_value_debug_pub_) {
+    return;
+  }
+  auto append_path_sample_json =
+      [](std::ostringstream& path_ss, const exploration_path_ns::ExplorationPath& path,
+         int max_nodes) {
+        path_ss << "[";
+        int sample_count = std::min(static_cast<int>(path.nodes_.size()), max_nodes);
+        for (int i = 0; i < sample_count; i++) {
+          if (i > 0) {
+            path_ss << ",";
+          }
+          path_ss << "{\"type\":" << static_cast<int>(path.nodes_[i].type_)
+                  << ",\"x\":" << path.nodes_[i].position_.x()
+                  << ",\"y\":" << path.nodes_[i].position_.y()
+                  << ",\"z\":" << path.nodes_[i].position_.z() << "}";
+        }
+        path_ss << "]";
+      };
+
+  auto count_shared_indices = [](const std::vector<int>& lhs, const std::vector<int>& rhs) {
+    int shared_count = 0;
+    for (const auto& lhs_ind : lhs) {
+      if (std::find(rhs.begin(), rhs.end(), lhs_ind) != rhs.end()) {
+        shared_count++;
+      }
+    }
+    return shared_count;
+  };
+
+  std::vector<int> exploring_cell_indices;
+  grid_world_->GetExploringCellIndices(exploring_cell_indices);
+
+  int max_viewpoint_score = 0;
+  int max_frontier_score = 0;
+  int useful_coverage_viewpoints = 0;
+  int useful_frontier_viewpoints = 0;
+  const std::vector<int> candidate_indices =
+      viewpoint_manager_->GetViewPointCandidateIndices();
+  const planning_env_ns::PlanningEnvDebugStats env_debug =
+      planning_env_->GetDebugStats();
+  const viewpoint_manager_ns::ViewPointManagerDebugStats viewpoint_debug =
+      viewpoint_manager_->GetDebugStats();
+  const std::vector<int>& selected_viewpoint_indices =
+      local_coverage_planner_->GetLastSelectedViewPointIndices();
+  const int selected_shared_with_previous =
+      count_shared_indices(selected_viewpoint_indices,
+                           previous_debug_selected_viewpoint_indices_);
+  const int selected_added_since_previous =
+      static_cast<int>(selected_viewpoint_indices.size()) -
+      selected_shared_with_previous;
+  const int selected_removed_since_previous =
+      static_cast<int>(previous_debug_selected_viewpoint_indices_.size()) -
+      selected_shared_with_previous;
+  for (const auto& viewpoint_ind : candidate_indices) {
+    const int score =
+        viewpoint_manager_->GetViewPointCoveredPointNum(viewpoint_ind);
+    const int frontier_score =
+        viewpoint_manager_->GetViewPointCoveredFrontierPointNum(viewpoint_ind);
+    max_viewpoint_score = std::max(max_viewpoint_score, score);
+    max_frontier_score = std::max(max_frontier_score, frontier_score);
+    if (score >= grid_world_->GetMinAddPointNum()) {
+      useful_coverage_viewpoints++;
+    }
+    if (frontier_score >= grid_world_->GetMinAddFrontierPointNum()) {
+      useful_frontier_viewpoints++;
+    }
+  }
+
+  std::ostringstream ss;
+  ss << "{";
+  ss << "\"stamp\":" << this->now().seconds();
+  ss << ",\"robot_x\":" << robot_position_.x;
+  ss << ",\"robot_y\":" << robot_position_.y;
+  ss << ",\"robot_z\":" << robot_position_.z;
+  ss << ",\"candidate_count\":" << viewpoint_candidate_count;
+  ss << ",\"candidate_indices\":" << candidate_indices.size();
+  ss << ",\"visited_horizontal_fov_deg\":"
+     << viewpoint_manager_->GetVisitedHorizontalFOVDeg();
+  ss << ",\"prediction_horizontal_fov_deg\":"
+     << viewpoint_manager_->GetPredictionHorizontalFOVDeg();
+  ss << ",\"robot_coverage_horizontal_fov_deg\":"
+     << planning_env_->GetRobotCoverageHorizontalFOVDeg();
+  ss << ",\"total_viewpoints\":" << viewpoint_debug.total_viewpoints;
+  ss << ",\"collision_free_viewpoints\":"
+     << viewpoint_debug.collision_free_viewpoints;
+  ss << ",\"line_of_sight_viewpoints\":"
+     << viewpoint_debug.line_of_sight_viewpoints;
+  ss << ",\"connected_viewpoints\":"
+     << viewpoint_debug.connected_viewpoints;
+  ss << ",\"free_and_line_of_sight_viewpoints\":"
+     << viewpoint_debug.free_and_line_of_sight_viewpoints;
+  ss << ",\"free_and_connected_viewpoints\":"
+     << viewpoint_debug.free_and_connected_viewpoints;
+  ss << ",\"line_of_sight_and_connected_viewpoints\":"
+     << viewpoint_debug.line_of_sight_and_connected_viewpoints;
+  ss << ",\"unvisited_candidate_viewpoints\":"
+     << viewpoint_debug.unvisited_candidate_viewpoints;
+  ss << ",\"visited_candidate_viewpoints\":"
+     << viewpoint_debug.visited_candidate_viewpoints;
+  ss << ",\"uncovered_points\":" << uncovered_point_num;
+  ss << ",\"uncovered_frontiers\":" << uncovered_frontier_point_num;
+  ss << ",\"planner_points\":" << env_debug.planner_points;
+  ss << ",\"covered_planner_points\":"
+     << env_debug.covered_planner_points;
+  ss << ",\"raw_frontier_points\":" << env_debug.raw_frontier_points;
+  ss << ",\"vertical_filtered_frontier_points\":"
+     << env_debug.vertical_filtered_frontier_points;
+  ss << ",\"clustered_frontier_points\":"
+     << env_debug.clustered_frontier_points;
+  ss << ",\"frontier_visible_to_candidates\":"
+     << env_debug.frontier_visible_to_candidates;
+  ss << ",\"frontier_visible_to_visited\":"
+     << env_debug.frontier_visible_to_visited;
+  ss << ",\"frontier_visible_to_no_viewpoint\":"
+     << env_debug.frontier_visible_to_no_viewpoint;
+  ss << ",\"frontier_with_candidate_in_fov_range\":"
+     << env_debug.frontier_with_candidate_in_fov_range;
+  ss << ",\"frontier_with_unvisited_candidate_in_fov_range\":"
+     << env_debug.frontier_with_unvisited_candidate_in_fov_range;
+  ss << ",\"frontier_with_visited_candidate_in_fov_range\":"
+     << env_debug.frontier_with_visited_candidate_in_fov_range;
+  ss << ",\"frontier_no_viewpoint_with_unvisited_candidate_in_fov_range\":"
+     << env_debug.frontier_no_viewpoint_with_unvisited_candidate_in_fov_range;
+  double frontier_nearest_candidate_dist_avg = 0.0;
+  double frontier_nearest_unvisited_candidate_dist_avg = 0.0;
+  if (env_debug.clustered_frontier_points > 0) {
+    frontier_nearest_candidate_dist_avg =
+        env_debug.frontier_nearest_candidate_dist_sum /
+        env_debug.clustered_frontier_points;
+    frontier_nearest_unvisited_candidate_dist_avg =
+        env_debug.frontier_nearest_unvisited_candidate_dist_sum /
+        env_debug.clustered_frontier_points;
+  }
+  ss << ",\"frontier_nearest_candidate_dist_avg\":"
+     << frontier_nearest_candidate_dist_avg;
+  ss << ",\"frontier_nearest_unvisited_candidate_dist_avg\":"
+     << frontier_nearest_unvisited_candidate_dist_avg;
+  ss << ",\"frontier_nearest_candidate_dist_max\":"
+     << env_debug.frontier_nearest_candidate_dist_max;
+  ss << ",\"frontier_nearest_unvisited_candidate_dist_max\":"
+     << env_debug.frontier_nearest_unvisited_candidate_dist_max;
+  ss << ",\"max_viewpoint_score\":" << max_viewpoint_score;
+  ss << ",\"max_frontier_score\":" << max_frontier_score;
+  ss << ",\"useful_coverage_viewpoints\":" << useful_coverage_viewpoints;
+  ss << ",\"useful_frontier_viewpoints\":" << useful_frontier_viewpoints;
+  ss << ",\"exploring_cells\":" << exploring_cell_indices.size();
+  ss << ",\"ordered_global_cells\":" << global_cell_tsp_order.size();
+  ss << ",\"unseen_cells\":"
+     << grid_world_->GetCellStatusCount(grid_world_ns::CellStatus::UNSEEN);
+  ss << ",\"covered_cells\":"
+     << grid_world_->GetCellStatusCount(grid_world_ns::CellStatus::COVERED);
+  ss << ",\"covered_by_others_cells\":"
+     << grid_world_->GetCellStatusCount(
+            grid_world_ns::CellStatus::COVERED_BY_OTHERS);
+  ss << ",\"nogo_cells\":"
+     << grid_world_->GetCellStatusCount(grid_world_ns::CellStatus::NOGO);
+  ss << ",\"global_path_nodes\":" << global_path.nodes_.size();
+  ss << ",\"local_path_nodes\":" << local_path.nodes_.size();
+  ss << ",\"global_path_length\":" << global_path.GetLength();
+  ss << ",\"local_path_length\":" << local_path.GetLength();
+  ss << ",\"selected_local_viewpoints\":"
+     << selected_viewpoint_indices.size();
+  ss << ",\"selected_shared_with_previous\":"
+     << selected_shared_with_previous;
+  ss << ",\"selected_added_since_previous\":"
+     << selected_added_since_previous;
+  ss << ",\"selected_removed_since_previous\":"
+     << selected_removed_since_previous;
+  ss << ",\"selected_viewpoint_sample\":[";
+  const int selected_sample_count =
+      std::min(static_cast<int>(selected_viewpoint_indices.size()), 12);
+  Eigen::Vector3d robot_position_vec(robot_position_.x, robot_position_.y,
+                                     robot_position_.z);
+  for (int i = 0; i < selected_sample_count; i++) {
+    if (i > 0) {
+      ss << ",";
+    }
+    const int viewpoint_ind = selected_viewpoint_indices[i];
+    const geometry_msgs::msg::Point position =
+        viewpoint_manager_->GetViewPointPosition(viewpoint_ind);
+    const Eigen::Vector3d position_vec(position.x, position.y, position.z);
+    ss << "{\"order\":" << i;
+    ss << ",\"index\":" << viewpoint_ind;
+    ss << ",\"x\":" << position.x;
+    ss << ",\"y\":" << position.y;
+    ss << ",\"z\":" << position.z;
+    ss << ",\"dist_to_robot\":"
+       << (position_vec - robot_position_vec).norm();
+    ss << ",\"covered_points\":"
+       << viewpoint_manager_->GetViewPointCoveredPointNum(viewpoint_ind);
+    ss << ",\"covered_frontiers\":"
+       << viewpoint_manager_->GetViewPointCoveredFrontierPointNum(viewpoint_ind);
+    ss << ",\"visited\":"
+       << (viewpoint_manager_->ViewPointVisited(viewpoint_ind) ? "true" : "false");
+    ss << ",\"candidate\":"
+       << (viewpoint_manager_->IsViewPointCandidate(viewpoint_ind) ? "true" : "false");
+    ss << ",\"cell\":"
+       << viewpoint_manager_->GetViewPointCellInd(viewpoint_ind);
+    ss << "}";
+  }
+  ss << "]";
+  if (!selected_viewpoint_indices.empty()) {
+    const geometry_msgs::msg::Point first_selected_position =
+        viewpoint_manager_->GetViewPointPosition(selected_viewpoint_indices.front());
+    const geometry_msgs::msg::Point last_selected_position =
+        viewpoint_manager_->GetViewPointPosition(selected_viewpoint_indices.back());
+    ss << ",\"selected_first_x\":" << first_selected_position.x;
+    ss << ",\"selected_first_y\":" << first_selected_position.y;
+    ss << ",\"selected_first_z\":" << first_selected_position.z;
+    ss << ",\"selected_last_x\":" << last_selected_position.x;
+    ss << ",\"selected_last_y\":" << last_selected_position.y;
+    ss << ",\"selected_last_z\":" << last_selected_position.z;
+    ss << ",\"selected_first_dist_to_robot\":"
+       << (Eigen::Vector3d(first_selected_position.x, first_selected_position.y,
+                           first_selected_position.z) -
+           robot_position_vec)
+              .norm();
+    ss << ",\"selected_last_dist_to_robot\":"
+       << (Eigen::Vector3d(last_selected_position.x, last_selected_position.y,
+                           last_selected_position.z) -
+           robot_position_vec)
+              .norm();
+  }
+  ss << ",\"local_path_sample\":";
+  append_path_sample_json(ss, local_path, 8);
+  ss << ",\"global_path_sample\":";
+  append_path_sample_json(ss, global_path, 8);
+  ss << ",\"lookahead_update\":"
+     << (lookahead_point_update_ ? "true" : "false");
+  ss << ",\"lookahead_x\":" << lookahead_point_.x();
+  ss << ",\"lookahead_y\":" << lookahead_point_.y();
+  ss << ",\"lookahead_z\":" << lookahead_point_.z();
+  ss << ",\"lookahead_dist\":"
+     << (lookahead_point_ -
+         Eigen::Vector3d(robot_position_.x, robot_position_.y,
+                         robot_position_.z)).norm();
+  ss << ",\"lookahead_dir_x\":" << lookahead_point_direction_.x();
+  ss << ",\"lookahead_dir_y\":" << lookahead_point_direction_.y();
+  ss << ",\"lookahead_in_los\":"
+     << (lookahead_point_in_line_of_sight_ ? "true" : "false");
+  ss << ",\"relocation\":" << (relocation_ ? "true" : "false");
+  ss << ",\"momentum_active\":" << (use_momentum_ ? "true" : "false");
+  ss << ",\"momentum_activation_count\":"
+     << momentum_activation_count_;
+  ss << ",\"lookahead_debug\":" << last_lookahead_debug_json_;
+  ss << ",\"return_home\":"
+     << (grid_world_->IsReturningHome() ? "true" : "false");
+  ss << ",\"local_complete\":"
+     << (local_coverage_planner_->IsLocalCoverageComplete() ? "true"
+                                                            : "false");
+  ss << ",\"will_mark_finished\":"
+     << (will_mark_finished ? "true" : "false");
+  ss << ",\"exploration_finished\":"
+     << (exploration_finished_ ? "true" : "false");
+  ss << ",\"near_home\":" << (near_home_ ? "true" : "false");
+  ss << ",\"at_home\":" << (at_home_ ? "true" : "false");
+  ss << "}";
+
+  std_msgs::msg::String msg;
+  msg.data = ss.str();
+  exploration_value_debug_pub_->publish(msg);
+
+  previous_debug_selected_viewpoint_indices_ = selected_viewpoint_indices;
 }
 
 double SensorCoveragePlanner3D::GetRobotToHomeDistance() {
@@ -1552,9 +1934,17 @@ void SensorCoveragePlanner3D::execute() {
     double current_time = this->now().seconds();
     double delta_time = current_time - start_time_;
 
-    if (grid_world_->IsReturningHome() &&
+    bool will_mark_finished =
+        grid_world_->IsReturningHome() &&
         local_coverage_planner_->IsLocalCoverageComplete() &&
-        (current_time - start_time_) > 5) {
+        (current_time - start_time_) > 5;
+    PublishExplorationValueDebug(viewpoint_candidate_count,
+                                 uncovered_point_num,
+                                 uncovered_frontier_point_num,
+                                 global_cell_tsp_order, global_path,
+                                 local_path, will_mark_finished);
+
+    if (will_mark_finished) {
       if (!exploration_finished_) {
         PrintExplorationStatus("Exploration completed, returning home", false);
       }

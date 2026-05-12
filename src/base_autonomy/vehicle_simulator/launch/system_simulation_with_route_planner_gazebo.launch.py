@@ -14,6 +14,38 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetParameter
 
 
+SENSOR_PROFILES = {
+    "mid360": {
+        "update_rate": "10",
+        "visual_horizontal_samples": "180",
+        "visual_horizontal_min": "-3.14159",
+        "visual_horizontal_max": "3.14159",
+        "gpu_horizontal_samples": "720",
+        "gpu_horizontal_min": "-3.14159",
+        "gpu_horizontal_max": "3.14159",
+        "gpu_vertical_samples": "16",
+        "gpu_vertical_min": "-0.26",
+        "gpu_vertical_max": "0.26",
+        "range_min": "0.08",
+        "range_max": "20.0",
+    },
+    "odin": {
+        "update_rate": "15",
+        "visual_horizontal_samples": "241",
+        "visual_horizontal_min": "-1.0471975512",
+        "visual_horizontal_max": "1.0471975512",
+        "gpu_horizontal_samples": "241",
+        "gpu_horizontal_min": "-1.0471975512",
+        "gpu_horizontal_max": "1.0471975512",
+        "gpu_vertical_samples": "181",
+        "gpu_vertical_min": "-0.7853981634",
+        "gpu_vertical_max": "0.7853981634",
+        "range_min": "0.2",
+        "range_max": "20.0",
+    },
+}
+
+
 def _rpy_to_matrix(roll, pitch, yaw):
   cr = cos(roll)
   sr = sin(roll)
@@ -281,6 +313,12 @@ def _write_world_file(context, *_args, **_kwargs):
   gui = LaunchConfiguration("gazebo_gui").perform(context)
   world_name = LaunchConfiguration("world_name").perform(context)
   scene_mesh_path = os.path.abspath(LaunchConfiguration("scene_mesh_path").perform(context))
+  sensor_profile_name = LaunchConfiguration("sensor_profile").perform(context)
+  if sensor_profile_name not in SENSOR_PROFILES:
+    raise RuntimeError(
+        f"Invalid sensor_profile '{sensor_profile_name}'. Expected one of: "
+        f"{', '.join(sorted(SENSOR_PROFILES))}")
+  sensor = SENSOR_PROFILES[sensor_profile_name]
   sensor_visualize = "true" if gui == "true" else "false"
   d1_visuals = _load_d1_visuals(package_share)
   scene_geometry = _load_scene_geometry(scene_mesh_path)
@@ -351,17 +389,17 @@ def _write_world_file(context, *_args, **_kwargs):
         </visual>
         <sensor name="scan_visualizer" type="lidar">
           <topic>lidar_visual</topic>
-          <update_rate>10</update_rate>
+          <update_rate>{sensor["update_rate"]}</update_rate>
           <always_on>true</always_on>
           <visualize>{sensor_visualize}</visualize>
           <lidar>
             <visibility_mask>0x01</visibility_mask>
             <scan>
               <horizontal>
-                <samples>180</samples>
+                <samples>{sensor["visual_horizontal_samples"]}</samples>
                 <resolution>1</resolution>
-                <min_angle>-3.14159</min_angle>
-                <max_angle>3.14159</max_angle>
+                <min_angle>{sensor["visual_horizontal_min"]}</min_angle>
+                <max_angle>{sensor["visual_horizontal_max"]}</max_angle>
               </horizontal>
               <vertical>
                 <samples>1</samples>
@@ -371,36 +409,36 @@ def _write_world_file(context, *_args, **_kwargs):
               </vertical>
             </scan>
             <range>
-              <min>0.08</min>
-              <max>20.0</max>
+              <min>{sensor["range_min"]}</min>
+              <max>{sensor["range_max"]}</max>
               <resolution>0.02</resolution>
             </range>
           </lidar>
         </sensor>
         <sensor name="gpu_lidar" type="gpu_lidar">
           <topic>lidar</topic>
-          <update_rate>10</update_rate>
+          <update_rate>{sensor["update_rate"]}</update_rate>
           <always_on>true</always_on>
           <visualize>{sensor_visualize}</visualize>
           <lidar>
             <visibility_mask>0x01</visibility_mask>
             <scan>
               <horizontal>
-                <samples>720</samples>
+                <samples>{sensor["gpu_horizontal_samples"]}</samples>
                 <resolution>1</resolution>
-                <min_angle>-3.14159</min_angle>
-                <max_angle>3.14159</max_angle>
+                <min_angle>{sensor["gpu_horizontal_min"]}</min_angle>
+                <max_angle>{sensor["gpu_horizontal_max"]}</max_angle>
               </horizontal>
               <vertical>
-                <samples>16</samples>
+                <samples>{sensor["gpu_vertical_samples"]}</samples>
                 <resolution>1</resolution>
-                <min_angle>-0.26</min_angle>
-                <max_angle>0.26</max_angle>
+                <min_angle>{sensor["gpu_vertical_min"]}</min_angle>
+                <max_angle>{sensor["gpu_vertical_max"]}</max_angle>
               </vertical>
             </scan>
             <range>
-              <min>0.08</min>
-              <max>20.0</max>
+              <min>{sensor["range_min"]}</min>
+              <max>{sensor["range_max"]}</max>
               <resolution>0.02</resolution>
             </range>
           </lidar>
@@ -573,6 +611,7 @@ def generate_launch_description():
       DeclareLaunchArgument("checkTerrainConn", default_value="true", description=""),
       DeclareLaunchArgument("vehicleTerrainMapTopic", default_value="/terrain_map", description=""),
       DeclareLaunchArgument("poseOverrideTopic", default_value="", description=""),
+      DeclareLaunchArgument("sensor_profile", default_value="odin", description="odin or mid360"),
       DeclareLaunchArgument("gazebo_gui", default_value="true", description=""),
       DeclareLaunchArgument(
           "scene_mesh_path",
